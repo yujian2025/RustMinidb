@@ -333,6 +333,6 @@ obtaining a copy of the software and accompanying documentation...
 
 ## 相关链接
 
-- **仓库**: https://github.com/yujian2025/rustminidb
+- **仓库**: https://github.com/rustminidb/rustminidb
 - **文档**: https://docs.rs/rustminidb
 - **主页**: https://rustminidb.dev
