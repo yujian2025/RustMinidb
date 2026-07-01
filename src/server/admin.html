@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RustMinidb 管理控制台</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; color: #333; }
+.header { background: #1a237e; color: #fff; padding: 16px 24px; display: flex; align-items: center; gap: 16px; }
+.header h1 { font-size: 20px; font-weight: 600; }
+.header .subtitle { font-size: 13px; opacity: 0.8; margin-left: auto; }
+.container { display: flex; gap: 20px; padding: 20px; max-width: 1400px; margin: 0 auto; }
+.sidebar { width: 260px; flex-shrink: 0; }
+.main { flex: 1; min-width: 0; }
+.panel { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+.panel h3 { font-size: 14px; color: #666; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+.server-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.info-card { background: #f8f9ff; border-radius: 6px; padding: 12px; text-align: center; }
+.info-card .label { font-size: 11px; color: #888; }
+.info-card .value { font-size: 22px; font-weight: 700; color: #1a237e; margin-top: 4px; }
+.table-item { padding: 8px 12px; cursor: pointer; border-radius: 4px; display: flex; align-items: center; gap: 8px; transition: background 0.15s; }
+.table-item:hover { background: #e8eaf6; }
+.table-item.active { background: #c5cae9; font-weight: 600; }
+.table-item .icon { font-size: 16px; }
+.table-item .name { flex: 1; font-size: 14px; }
+.table-item .count { font-size: 11px; color: #999; background: #f0f0f0; padding: 2px 8px; border-radius: 10px; }
+.sql-editor { width: 100%; min-height: 100px; border: 1px solid #ddd; border-radius: 6px; padding: 12px; font-family: 'Consolas', 'Courier New', monospace; font-size: 14px; resize: vertical; outline: none; }
+.sql-editor:focus { border-color: #1a237e; box-shadow: 0 0 0 3px rgba(26,35,126,0.1); }
+.toolbar { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.btn { padding: 8px 20px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 500; transition: all 0.15s; }
+.btn-primary { background: #1a237e; color: #fff; }
+.btn-primary:hover { background: #283593; }
+.btn-success { background: #2e7d32; color: #fff; }
+.btn-success:hover { background: #388e3c; }
+.btn-danger { background: #c62828; color: #fff; }
+.btn-danger:hover { background: #d32f2f; }
+.btn-secondary { background: #e0e0e0; color: #333; }
+.btn-secondary:hover { background: #bdbdbd; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-sm { padding: 4px 12px; font-size: 12px; }
+.result-area { margin-top: 12px; overflow-x: auto; }
+.result-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.result-table th { background: #f5f5f5; padding: 8px 12px; text-align: left; font-weight: 600; border-bottom: 2px solid #ddd; white-space: nowrap; }
+.result-table td { padding: 6px 12px; border-bottom: 1px solid #eee; }
+.result-table tr:hover td { background: #f8f9ff; }
+.result-info { margin-top: 8px; font-size: 13px; color: #666; display: flex; gap: 16px; align-items: center; }
+.result-info .success { color: #2e7d32; font-weight: 600; }
+.result-info .error { color: #c62828; font-weight: 600; }
+.schema-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.schema-table th { background: #f5f5f5; padding: 6px 10px; text-align: left; font-weight: 600; border-bottom: 2px solid #ddd; }
+.schema-table td { padding: 5px 10px; border-bottom: 1px solid #eee; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.badge-pk { background: #fff3e0; color: #e65100; }
+.badge-null { background: #e8f5e9; color: #2e7d32; }
+.badge-type { background: #e3f2fd; color: #1565c0; }
+.loading { display: none; text-align: center; padding: 40px; color: #999; }
+.loading.show { display: block; }
+.error-box { background: #ffebee; color: #c62828; padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-top: 8px; display: none; }
+.error-box.show { display: block; }
+.empty-state { text-align: center; padding: 40px 20px; color: #999; }
+.empty-state .icon { font-size: 48px; margin-bottom: 8px; }
+.tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+.tab { padding: 6px 16px; cursor: pointer; border-radius: 4px; font-size: 13px; color: #666; transition: all 0.15s; }
+.tab:hover { background: #f0f0f0; }
+.tab.active { background: #1a237e; color: #fff; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+.history-item { padding: 6px 10px; cursor: pointer; border-radius: 4px; font-size: 12px; font-family: monospace; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.history-item:hover { background: #f5f5f5; }
+.api-section { margin-bottom: 20px; }
+.api-section h4 { font-size: 15px; color: #1a237e; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 2px solid #e8eaf6; }
+.api-method { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; color: #fff; margin-right: 8px; }
+.api-get { background: #1565c0; }
+.api-post { background: #2e7d32; }
+.api-delete { background: #c62828; }
+.api-path { font-family: monospace; font-size: 13px; font-weight: 600; }
+.api-desc { font-size: 13px; color: #555; margin: 4px 0 8px 20px; }
+.api-code { background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 6px; padding: 10px 14px; font-family: monospace; font-size: 12px; margin: 4px 0 12px 20px; white-space: pre-wrap; overflow-x: auto; line-height: 1.6; }
+/* 数据编辑 */
+.data-toolbar { display: flex; gap: 8px; margin: 12px 0 8px; flex-wrap: wrap; }
+.edit-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 999; justify-content: center; align-items: center; }
+.edit-modal.show { display: flex; }
+.edit-modal-content { background: #fff; border-radius: 10px; padding: 24px; min-width: 360px; max-width: 600px; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+.edit-modal-content h3 { margin-bottom: 16px; font-size: 16px; }
+.edit-field { margin-bottom: 10px; }
+.edit-field label { display: block; font-size: 12px; color: #666; margin-bottom: 3px; }
+.edit-field input { width: 100%; padding: 7px 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 13px; outline: none; }
+.edit-field input:focus { border-color: #1a237e; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.table-title { font-size: 18px; font-weight: 700; color: #1a237e; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #e8eaf6; }
+.row-actions { white-space: nowrap; }
+.row-actions .btn { padding: 2px 8px; font-size: 11px; margin: 0 2px; }
+.empty-data { text-align: center; padding: 30px; color: #999; }
+@media (max-width: 768px) { .container { flex-direction: column; } .sidebar { width: 100%; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>⚡ RustMinidb</h1>
+  <span class="subtitle" id="versionInfo">v0.1.0</span>
+</div>
+
+<!-- 🔒 Token 认证栏 -->
+<div class="token-bar" id="tokenBar">
+  <span style="display:flex;align-items:center;gap:6px;">
+    <span>🔑</span>
+    <span style="font-size:13px;color:#555;">API Token:</span>
+  </span>
+  <input id="tokenInput" type="password" placeholder="输入 API Token..."
+    style="flex:1;max-width:320px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:13px;font-family:monospace;outline:none;"
+    onkeydown="if(event.key==='Enter')saveToken()">
+  <button class="btn btn-sm btn-primary" onclick="saveToken()" id="tokenBtn">保存</button>
+  <span id="tokenStatus" style="font-size:12px;display:none;"></span>
+</div>
+
+<style>
+.token-bar {
+  display:flex;align-items:center;gap:10px;padding:8px 20px;
+  background:#fffbe6;border-bottom:1px solid #ffe58f;
+  font-size:13px;flex-wrap:wrap;
+}
+.token-bar.token-ok {
+  background:#f6ffed;border-color:#b7eb8f;
+}
+</style>
+
+<div class="container">
+  <!-- 侧边栏 -->
+  <div class="sidebar">
+    <div class="panel">
+      <h3>🗄️ 数据库</h3>
+      <select id="dbSelector" onchange="switchDatabase(this.value)" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:14px;margin-bottom:8px;outline:none;"></select>
+      <div style="display:flex;gap:6px;">
+        <input id="newDbInput" type="text" placeholder="新建数据库..." style="flex:1;padding:7px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;outline:none;" onkeydown="if(event.key==='Enter')createDatabase()">
+        <button class="btn btn-sm btn-success" onclick="createDatabase()" title="新建数据库">+</button>
+        <button class="btn btn-sm" onclick="refreshDatabases()" style="background:#e0e0e0;" title="刷新列表">🔄</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>📋 数据表</h3>
+      <div id="tableList"><div class="empty-state">暂无数据表</div></div>
+    </div>
+    <div class="panel">
+      <h3>🕐 历史记录</h3>
+      <div id="historyList"><div class="empty-state" style="padding:16px;font-size:12px;">暂无记录</div></div>
+    </div>
+  </div>
+
+  <!-- 主内容 -->
+  <div class="main">
+    <!-- 服务器状态 -->
+    <div class="panel" style="padding:12px 16px;">
+      <div class="server-info" id="serverInfo" style="grid-template-columns:repeat(4,1fr);">
+        <div class="info-card" style="padding:8px;"><div class="label">运行时间</div><div class="value" id="uptime">-</div></div>
+        <div class="info-card" style="padding:8px;"><div class="label">表数量</div><div class="value" id="tableCount">-</div></div>
+        <div class="info-card" style="padding:8px;"><div class="label">数据库</div><div class="value" id="currentDb" style="font-size:14px;">-</div></div>
+        <div class="info-card" style="padding:8px;"><div class="label">状态</div><div class="value" id="statusBadge" style="font-size:14px;">-</div></div>
+      </div>
+    </div>
+    <!-- SQL 查询 -->
+    <div class="panel">
+      <div class="tabs">
+        <div class="tab active" onclick="switchTab('query')">🔍 SQL 查询</div>
+        <div class="tab" onclick="switchTab('schema')">📐 表结构</div>
+        <div class="tab" onclick="switchTab('api')">📡 API 文档</div>
+      </div>
+      <div id="tab-query" class="tab-content active">
+        <textarea class="sql-editor" id="sqlInput" placeholder="请输入 SQL 语句，例如：SELECT * FROM sensors">SELECT * FROM sensors</textarea>
+        <div class="toolbar">
+          <button class="btn btn-primary" id="executeBtn" onclick="executeSQL()">▶ 执行</button>
+          <button class="btn btn-secondary" onclick="clearResult()">清除</button>
+          <span style="margin-left:auto;font-size:12px;color:#999;" id="shortcutHint">Ctrl+Enter 执行</span>
+        </div>
+        <div class="loading" id="loading"><div class="icon">⏳</div>执行中...</div>
+        <div class="error-box" id="errorBox"></div>
+        <div class="result-area" id="resultArea"></div>
+      </div>
+      <div id="tab-schema" class="tab-content">
+        <div id="schemaDetail"><div class="empty-state">点击左侧表名查看结构</div></div>
+        <div id="dataBrowser" style="display:none;">
+          <div class="data-toolbar">
+            <button class="btn btn-sm btn-primary" onclick="refreshData()">🔄 刷新数据</button>
+            <button class="btn btn-sm btn-success" onclick="showAddRow()">➕ 添加行</button>
+          </div>
+          <div id="dataTableArea"></div>
+        </div>
+      </div>
+      <div id="tab-api" class="tab-content">
+        <div class="api-section">
+          <h4>🔌 REST API 接口文档</h4>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;">RustMinidb 提供以下 HTTP API 接口，所有请求和响应均为 JSON 格式。</p>
+
+          <h4>📊 服务器信息</h4>
+          <div><span class="api-method api-get">GET</span><span class="api-path">/v1/health</span></div>
+          <div class="api-desc">健康检查，返回服务器状态、版本、运行时间、表数、当前数据库</div>
+          <div class="api-code">curl http://localhost:8080/v1/health</div>
+
+          <h4>🗄️ 数据库管理</h4>
+          <div><span class="api-method api-get">GET</span><span class="api-path">/v1/databases</span></div>
+          <div class="api-desc">列出所有数据库文件，标记当前激活的数据库</div>
+          <div class="api-code">curl http://localhost:8080/v1/databases</div>
+
+          <div><span class="api-method api-post">POST</span><span class="api-path">/v1/databases/create</span></div>
+          <div class="api-desc">创建新数据库并自动切换到该数据库</div>
+          <div class="api-code">curl -X POST http://localhost:8080/v1/databases/create \<br>  -H "Content-Type: application/json" \<br>  -d '{"name":"myapp"}'</div>
+
+          <div><span class="api-method api-post">POST</span><span class="api-path">/v1/databases/switch</span></div>
+          <div class="api-desc">切换到指定数据库（不存在时可通过 create:true 自动创建）</div>
+          <div class="api-code">curl -X POST http://localhost:8080/v1/databases/switch \<br>  -H "Content-Type: application/json" \<br>  -d '{"name":"myapp"}'</div>
+
+          <h4>📋 表管理</h4>
+          <div><span class="api-method api-get">GET</span><span class="api-path">/v1/tables</span></div>
+          <div class="api-desc">列出当前数据库中的所有表</div>
+          <div class="api-code">curl http://localhost:8080/v1/tables</div>
+
+          <div><span class="api-method api-get">GET</span><span class="api-path">/v1/schema/{table}</span></div>
+          <div class="api-desc">查看指定表的列名、类型、主键、非空约束</div>
+          <div class="api-code">curl http://localhost:8080/v1/schema/sensors</div>
+
+          <h4>📝 SQL 执行</h4>
+          <div><span class="api-method api-post">POST</span><span class="api-path">/v1/query</span></div>
+          <div class="api-desc">执行 SQL 语句（CREATE / INSERT / SELECT / UPDATE / DELETE / DROP）</div>
+          <div class="api-code"># 创建表<br>curl -X POST http://localhost:8080/v1/query \<br>  -H "Content-Type: application/json" \<br>  -d '{"sql":"CREATE TABLE users (id INT PRIMARY KEY, name TEXT, age INT)"}'<br><br># 插入数据<br>curl -X POST http://localhost:8080/v1/query \<br>  -H "Content-Type: application/json" \<br>  -d '{"sql":"INSERT INTO users VALUES (1, '\''Alice'\'', 30)"}'<br><br># 查询<br>curl -s http://localhost:8080/v1/query \<br>  -H "Content-Type: application/json" \<br>  -d '{"sql":"SELECT * FROM users WHERE age > 20 ORDER BY name LIMIT 10"}'<br><br># 更新<br>curl -X POST http://localhost:8080/v1/query \<br>  -H "Content-Type: application/json" \<br>  -d '{"sql":"UPDATE users SET age = 31 WHERE id = 1"}'<br><br># 删除<br>curl -X POST http://localhost:8080/v1/query \<br>  -H "Content-Type: application/json" \<br>  -d '{"sql":"DELETE FROM users WHERE id = 2"}'</div>
+
+          <h4>📥 数据导入</h4>
+          <div><span class="api-method api-post">POST</span><span class="api-path">/v1/import</span></div>
+          <div class="api-desc">批量导入 JSON 数组格式的数据到指定表</div>
+          <div class="api-code">curl -X POST http://localhost:8080/v1/import \<br>  -H "Content-Type: application/json" \<br>  -d '{"table":"users","data":[{"id":3,"name":"Charlie","age":28},{"id":4,"name":"Diana","age":35}]}'</div>
+
+          <h4>📌 通用说明</h4>
+          <div class="api-code" style="background:#fff8e1;border-color:#ffe082;">所有 API 统一返回格式：<br>{<br>  "success": true/false,<br>  "data": { "columns":[...], "rows":[[...],...], "rowsAffected":N, "timeMs":1.23 },<br>  "error": { "code":"ERROR_CODE", "message":"错误描述" }<br>}<br><br>错误码: PARSE_ERROR, TABLE_NOT_FOUND, PRIMARY_KEY_CONFLICT, TYPE_MISMATCH, VALIDATION_ERROR</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 快速操作 -->
+    <div class="panel">
+      <h3>⚡ 快速操作</h3>
+      <div class="toolbar">
+        <button class="btn btn-success btn-sm" onclick="quickSQL('CREATE TABLE demo (id INT PRIMARY KEY, name TEXT, value FLOAT)')">建表示例</button>
+        <button class="btn btn-sm" onclick="listTablesAPI()" style="background:#e0e0e0;">列出所有表</button>
+        <button class="btn btn-sm btn-danger" onclick="if(confirm('确定要清除所有结果吗？'))clearResult()">清除结果</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 编辑弹窗 -->
+<div class="edit-modal" id="editModal">
+  <div class="edit-modal-content">
+    <h3 id="editModalTitle">编辑行</h3>
+    <div id="editForm"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeEditModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveEditRow()">💾 保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const BASE = 'http://' + window.location.host;
+
+// ── Token 管理 ──
+
+/// 获取存储的 Token
+function getToken() {
+  return localStorage.getItem('rustminidb_token') || '';
+}
+
+/// 保存 Token
+function saveToken() {
+  const token = document.getElementById('tokenInput').value.trim();
+  if (token) {
+    localStorage.setItem('rustminidb_token', token);
+    showTokenStatus('✅ 已保存', true);
+  } else {
+    localStorage.removeItem('rustminidb_token');
+    showTokenStatus('⚠️ 已清除', false);
+  }
+  document.getElementById('tokenInput').value = '';
+  // 刷新页面数据
+  refreshStatus();
+  refreshDatabases();
+  refreshTables();
+}
+
+/// 清除 Token（登出）
+function clearToken() {
+  localStorage.removeItem('rustminidb_token');
+  document.getElementById('tokenInput').value = '';
+  document.getElementById('tokenBar').className = 'token-bar';
+  showTokenStatus('已登出', false);
+}
+
+/// 显示 Token 状态
+function showTokenStatus(msg, ok) {
+  const el = document.getElementById('tokenStatus');
+  el.textContent = msg;
+  el.style.display = 'inline';
+  el.style.color = ok ? '#52c41a' : '#faad14';
+  document.getElementById('tokenBar').className = 'token-bar' + (ok ? ' token-ok' : '');
+  setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+
+/// 统一 API 请求（自动附加 Bearer Token）
+async function apiFetch(path, options = {}) {
+  const token = getToken();
+  const headers = options.headers || {};
+  if (token) {
+    headers['Authorization'] = 'Bearer ' + token;
+  }
+  const res = await fetch(BASE + path, { ...options, headers });
+  // 401 → 提示用户输入 Token
+  if (res.status === 401) {
+    const data = await res.json().catch(() => ({}));
+    const errMsg = (data.error && data.error.message) || 'API Token 无效或缺失';
+    document.getElementById('tokenBar').className = 'token-bar';
+    showTokenStatus('❌ ' + errMsg + ' — 请输入正确的 Token', false);
+    throw new Error('401 Unauthorized: ' + errMsg);
+  }
+  return res;
+}
+
+// 初始化
+async function init() {
+  // 从 localStorage 恢复 Token
+  const saved = getToken();
+  if (saved) {
+    document.getElementById('tokenBar').className = 'token-bar token-ok';
+    showTokenStatus('🔑 Token 已加载', true);
+  }
+  await refreshStatus();
+  await refreshDatabases();
+  await refreshTables();
+  document.getElementById('sqlInput').addEventListener('keydown', function(e) {
+    if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); executeSQL(); }
+  });
+}
+
+// 刷新数据库列表
+async function refreshDatabases() {
+  try {
+    const res = await apiFetch('/v1/databases');
+    const data = await res.json();
+    const sel = document.getElementById('dbSelector');
+    if (data.success && data.data.rows.length > 0) {
+      sel.innerHTML = '';
+      data.data.rows.forEach(r => {
+        const opt = document.createElement('option');
+        opt.value = r[0].replace('.db','');
+        opt.textContent = r[0].replace('.db','');
+        if (r[1]) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    } else {
+      sel.innerHTML = '<option value="data">data</option>';
+    }
+  } catch(e) {}
+}
+
+// 切换数据库
+async function switchDatabase(name) {
+  try {
+    const res = await apiFetch('/v1/databases/switch', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({name: name, create: false})
+    });
+    const data = await res.json();
+    if (data.success) {
+      document.getElementById('resultArea').innerHTML = '';
+      document.getElementById('errorBox').classList.remove('show');
+      await refreshStatus();
+      await refreshTables();
+      showToast('已切换到数据库: ' + name);
+    } else {
+      // 如果不存在，尝试创建
+      const createRes = await apiFetch('/v1/databases/switch', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({name: name, create: true})
+      });
+      const createData = await createRes.json();
+      if (createData.success) {
+        await refreshDatabases();
+        await refreshTables();
+        showToast('已创建并切换到数据库: ' + name);
+      }
+    }
+  } catch(e) {}
+}
+
+// 创建数据库
+async function createDatabase() {
+  const input = document.getElementById('newDbInput');
+  const name = input.value.trim();
+  if (!name) return;
+  input.value = '';
+  try {
+    const res = await apiFetch('/v1/databases/create', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({name: name})
+    });
+    const data = await res.json();
+    if (data.success) {
+      await refreshDatabases();
+      await refreshTables();
+      showToast('数据库已创建: ' + name);
+    } else {
+      showToast('创建失败: ' + (data.error?.message || ''));
+    }
+  } catch(e) {}
+}
+
+// Toast 提示
+function showToast(msg) {
+  let t = document.createElement('div');
+  t.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#333;color:#fff;padding:10px 20px;border-radius:8px;font-size:14px;z-index:9999;animation:fadeIn 0.3s;';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity 0.5s'; setTimeout(() => t.remove(), 500); }, 2000);
+}
+
+// 刷新服务器状态
+async function refreshStatus() {
+  try {
+    const res = await apiFetch('/v1/health');
+    const data = await res.json();
+    if (data.success) {
+      const row = data.data.rows[0];
+      document.getElementById('uptime').textContent = fmtUptime(row[2]);
+      document.getElementById('tableCount').textContent = row[3];
+      document.getElementById('currentDb').textContent = row[4] || '-';
+      document.getElementById('statusBadge').textContent = '✅ 运行中';
+      document.getElementById('statusBadge').style.color = '#2e7d32';
+    }
+  } catch(e) {
+    document.getElementById('statusBadge').textContent = '❌ 离线';
+    document.getElementById('statusBadge').style.color = '#c62828';
+  }
+}
+
+// 刷新表数据
+async function refreshData() {
+  if (!currentTable) return;
+  const area = document.getElementById('dataTableArea');
+  area.innerHTML = '<div class="empty-data">⏳ 加载中...</div>';
+  try {
+    const res = await apiFetch('/v1/query', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({sql: 'SELECT * FROM ' + currentTable + ' LIMIT 200'})
+    });
+    const data = await res.json();
+    if (data.success && data.data.rows.length > 0) {
+      let html = '<div style="font-size:12px;color:#888;margin-bottom:6px;">共 ' + data.data.rows.length + ' 行</div>';
+      html += '<table class="result-table"><thead><tr>';
+      html += '<th style="width:40px;">#</th>';
+      data.data.columns.forEach(c => { html += '<th>' + c + '</th>'; });
+      html += '<th style="width:100px;">操作</th>';
+      html += '</tr></thead><tbody>';
+      data.data.rows.forEach((row, idx) => {
+        html += '<tr>';
+        html += '<td style="color:#999;">' + (idx+1) + '</td>';
+        let rowData = {};
+        row.forEach((val, ci) => { rowData[data.data.columns[ci]] = val; });
+        row.forEach(cell => {
+          const val = cell === null ? '<span style="color:#999;">NULL</span>' : String(cell);
+          html += '<td><div style="max-width:200px;overflow:hidden;text-overflow:ellipsis;">' + val + '</div></td>';
+        });
+        html += '<td class="row-actions">';
+        html += '<button class="btn btn-sm" onclick="editRow(' + idx + ')" style="background:#e3f2fd;">✏️</button>';
+        html += '<button class="btn btn-sm btn-danger" onclick="deleteRow(' + idx + ')">🗑️</button>';
+        html += '</td></tr>';
+      });
+      html += '</tbody></table>';
+      area.innerHTML = html;
+    } else if (data.success) {
+      area.innerHTML = '<div class="empty-data">📭 表中暂无数据</div>';
+    } else {
+      area.innerHTML = '<div class="empty-data">❌ ' + (data.error?.message || '查询失败') + '</div>';
+    }
+  } catch(e) {
+    area.innerHTML = '<div class="empty-data">❌ 网络错误: ' + e.message + '</div>';
+  }
+}
+
+// 编辑行
+let editingRowIndex = -1;
+let editingRowData = null;
+
+function editRow(idx) {
+  // 从表格中获取该行数据
+  const table = document.querySelector('#dataTableArea table');
+  if (!table) return;
+  const rows = table.querySelectorAll('tbody tr');
+  if (!rows[idx]) return;
+  const cells = rows[idx].querySelectorAll('td');
+  const cols = currentSchema ? currentSchema.map(c => c[0]) : [];
+  editingRowIndex = idx;
+  editingRowData = {};
+  cells.forEach((cell, ci) => {
+    if (ci > 0 && ci - 1 < cols.length) {
+      let val = cell.textContent.trim();
+      if (val === 'NULL') val = '';
+      editingRowData[cols[ci-1]] = val;
+    }
+  });
+  showEditForm('编辑第 ' + (idx+1) + ' 行');
+}
+
+// 显示添加行表单
+function showAddRow() {
+  editingRowIndex = -1;
+  editingRowData = {};
+  if (currentSchema) {
+    currentSchema.forEach(c => { editingRowData[c[0]] = ''; });
+  }
+  showEditForm('添加新行');
+}
+
+// 显示编辑表单
+function showEditForm(title) {
+  document.getElementById('editModalTitle').textContent = title;
+  let html = '';
+  if (currentSchema) {
+    currentSchema.forEach(c => {
+      const colName = c[0];
+      const colType = c[1];
+      const isPk = c[3];
+      const val = editingRowData[colName] || '';
+      html += '<div class="edit-field">';
+      html += '<label>' + colName + ' <span style="color:#999;font-size:11px;">(' + colType + (isPk ? ', PK' : '') + ')</span></label>';
+      html += '<input id="ef-' + colName + '" type="text" value="' + val + '" placeholder="输入 ' + colName + '">';
+      html += '</div>';
+    });
+  }
+  document.getElementById('editForm').innerHTML = html;
+  document.getElementById('editModal').classList.add('show');
+}
+
+// 格式化 SQL 值（根据列类型）
+function formatSqlValue(colName, value) {
+  if (value === '' || value === null) return 'NULL';
+  if (!currentSchema) return "'" + value.replace(/'/g, "''") + "'";
+  const col = currentSchema.find(c => c[0] === colName);
+  if (!col) return "'" + value.replace(/'/g, "''") + "'";
+  const colType = col[1].toUpperCase();
+  if (colType === 'INTEGER' || colType === 'INT' || colType === 'FLOAT' || colType === 'DOUBLE' || colType === 'REAL') {
+    return value; // 数字不加引号
+  }
+  if (colType === 'BOOLEAN' || colType === 'BOOL') {
+    return value.toLowerCase();
+  }
+  return "'" + value.replace(/'/g, "''") + "'"; // 字符串加引号
+}
+
+// 保存编辑行
+async function saveEditRow() {
+  if (!currentTable || !currentSchema) return;
+  const inputs = document.querySelectorAll('#editForm input');
+  const values = {};
+  inputs.forEach(inp => {
+    const name = inp.id.replace('ef-', '');
+    values[name] = inp.value.trim();
+  });
+  // 验证主键
+  const pkCol = currentSchema.find(c => c[3]);
+  if (pkCol && !values[pkCol[0]]) {
+    alert('主键 "' + pkCol[0] + '" 不能为空');
+    return;
+  }
+  if (editingRowIndex >= 0) {
+    // 编辑现有行
+    const pkColName = pkCol ? pkCol[0] : currentSchema[0][0];
+    const pkValue = editingRowData[pkColName];
+    let sets = [];
+    currentSchema.forEach(c => {
+      if (!c[3]) {
+        sets.push(c[0] + ' = ' + formatSqlValue(c[0], values[c[0]]));
+      }
+    });
+    const pkFormatted = formatSqlValue(pkColName, pkValue);
+    const sql = 'UPDATE ' + currentTable + ' SET ' + sets.join(', ') + ' WHERE ' + pkColName + ' = ' + pkFormatted;
+    await executeRawSQL(sql);
+  } else {
+    // 添加新行
+    let cols = [];
+    let vals = [];
+    currentSchema.forEach(c => {
+      cols.push(c[0]);
+      vals.push(formatSqlValue(c[0], values[c[0]]));
+    });
+    const sql = 'INSERT INTO ' + currentTable + ' (' + cols.join(', ') + ') VALUES (' + vals.join(', ') + ')';
+    await executeRawSQL(sql);
+  }
+  closeEditModal();
+  refreshData();
+}
+
+// 执行原始 SQL
+async function executeRawSQL(sql) {
+  try {
+    const res = await apiFetch('/v1/query', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({sql: sql})
+    });
+    const data = await res.json();
+    if (!data.success) alert('操作失败: ' + (data.error?.message || ''));
+  } catch(e) { alert('网络错误: ' + e.message); }
+}
+
+// 删除行
+async function deleteRow(idx) {
+  if (!currentTable || !currentSchema) return;
+  const table = document.querySelector('#dataTableArea table');
+  if (!table) return;
+  const rows = table.querySelectorAll('tbody tr');
+  if (!rows[idx]) return;
+  const cells = rows[idx].querySelectorAll('td');
+  const pkCol = currentSchema.find(c => c[3]);
+  const pkColName = pkCol ? pkCol[0] : currentSchema[0][0];
+  const pkColIdx = currentSchema.findIndex(c => c[0] === pkColName);
+  const pkValue = cells[pkColIdx + 1] ? cells[pkColIdx + 1].textContent.trim() : '';
+  if (!confirm('确定要删除第 ' + (idx+1) + ' 行（' + pkColName + '=' + pkValue + '）吗？')) return;
+  const pkFormatted = formatSqlValue(pkColName, pkValue);
+  const sql = 'DELETE FROM ' + currentTable + ' WHERE ' + pkColName + ' = ' + pkFormatted;
+  await executeRawSQL(sql);
+  refreshData();
+}
+
+// 关闭编辑弹窗
+function closeEditModal() {
+  document.getElementById('editModal').classList.remove('show');
+}
+async function refreshTables() {
+  try {
+    const res = await apiFetch('/v1/tables');
+    const data = await res.json();
+    const list = document.getElementById('tableList');
+    if (data.success && data.data.rows.length > 0) {
+      const tables = data.data.rows.map(r => r[0]);
+      let html = '<div style="margin-bottom:8px;font-size:12px;color:#999;">共 ' + tables.length + ' 个表</div>';
+      tables.forEach(t => {
+        html += '<div class="table-item" onclick="selectTable(\'' + t + '\')">';
+        html += '<span class="icon">📄</span>';
+        html += '<span class="name">' + t + '</span>';
+        html += '<span class="count" id="count-' + t + '">?</span>';
+        html += '</div>';
+      });
+      list.innerHTML = html;
+      // 获取行数
+      tables.forEach(t => {
+        apiFetch('/v1/query', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({sql: 'SELECT COUNT(*) as c FROM ' + t})
+        }).then(r => r.json()).then(d => {
+          if (d.success && d.data.rows.length > 0) {
+            const el = document.getElementById('count-' + t);
+            if (el) el.textContent = d.data.rows[0][0] + ' 行';
+          }
+        }).catch(() => {});
+      });
+    } else {
+      list.innerHTML = '<div class="empty-state">暂无数据表</div>';
+    }
+  } catch(e) {}
+}
+
+// 选择表
+let currentTable = null;
+let currentSchema = null;
+
+async function selectTable(name) {
+  document.querySelectorAll('.table-item').forEach(el => el.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  currentTable = name;
+  document.getElementById('sqlInput').value = 'SELECT * FROM ' + name + ' LIMIT 100';
+  switchTab('schema');
+  
+  try {
+    const res = await apiFetch('/v1/schema/' + name);
+    const data = await res.json();
+    if (data.success) {
+      currentSchema = data.data.rows;
+      let html = '<div class="table-title">📄 ' + name + '</div>';
+      html += '<table class="schema-table"><thead><tr><th>列名</th><th>类型</th><th>属性</th><th>备注</th></tr></thead><tbody>';
+      data.data.rows.forEach(r => {
+        html += '<tr><td>' + r[0] + '</td><td><span class="badge badge-type">' + r[1] + '</span></td><td>';
+        if (r[3]) html += '<span class="badge badge-pk">PRIMARY KEY</span> ';
+        if (!r[2]) html += '<span class="badge badge-null">NOT NULL</span>';
+        html += '</td>';
+        html += '<td style="color:#888;max-width:200px;overflow:hidden;text-overflow:ellipsis;font-size:12px;">' + (r[4] || '') + '</td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+      document.getElementById('schemaDetail').innerHTML = html;
+      document.getElementById('dataBrowser').style.display = 'block';
+      refreshData();
+    }
+  } catch(e) {}
+}
+
+// 执行 SQL
+async function executeSQL() {
+  const sql = document.getElementById('sqlInput').value.trim();
+  if (!sql) return;
+  
+  const loading = document.getElementById('loading');
+  const errorBox = document.getElementById('errorBox');
+  const resultArea = document.getElementById('resultArea');
+  
+  loading.classList.add('show');
+  errorBox.classList.remove('show');
+  resultArea.innerHTML = '';
+  
+  try {
+    const res = await apiFetch('/v1/query', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({sql: sql})
+    });
+    const data = await res.json();
+    loading.classList.remove('show');
+    
+    if (data.success) {
+      addHistory(sql);
+      renderResult(data, sql);
+    } else {
+      errorBox.textContent = '❌ [' + (data.error?.code || 'ERROR') + '] ' + (data.error?.message || '未知错误');
+      errorBox.classList.add('show');
+    }
+  } catch(e) {
+    loading.classList.remove('show');
+    errorBox.textContent = '❌ 网络错误: ' + e.message;
+    errorBox.classList.add('show');
+  }
+  
+  refreshTables();
+  refreshStatus();
+}
+
+// 渲染结果
+function renderResult(data, sql) {
+  const area = document.getElementById('resultArea');
+  const d = data.data;
+  const isWrite = d.columns.length === 0 && d.rows.length === 0;
+  
+  let html = '';
+  if (isWrite) {
+    html += '<div class="result-info">';
+    html += '<span class="success">✅ 执行成功</span>';
+    html += '<span>影响行数: <strong>' + d.rowsAffected + '</strong></span>';
+    html += '<span>耗时: <strong>' + d.timeMs.toFixed(1) + '</strong> ms</span>';
+    html += '</div>';
+  } else if (d.columns && d.columns.length > 0) {
+    html += '<table class="result-table"><thead><tr>';
+    d.columns.forEach(c => { html += '<th>' + c + '</th>'; });
+    html += '</tr></thead><tbody>';
+    if (d.rows.length === 0) {
+      html += '<tr><td colspan="' + d.columns.length + '" style="text-align:center;color:#999;">暂无数据</td></tr>';
+    } else {
+      d.rows.forEach(row => {
+        html += '<tr>';
+        row.forEach(cell => {
+          const val = cell === null ? '<span style="color:#999;">NULL</span>' : String(cell);
+          html += '<td>' + val + '</td>';
+        });
+        html += '</tr>';
+      });
+    }
+    html += '</tbody></table>';
+    html += '<div class="result-info">';
+    html += '<span class="success">✅ 查询成功</span>';
+    html += '<span>返回 <strong>' + d.rows.length + '</strong> 行</span>';
+    html += '<span>耗时: <strong>' + d.timeMs.toFixed(1) + '</strong> ms</span>';
+    html += '</div>';
+  }
+  area.innerHTML = html;
+}
+
+// 快速 SQL
+function quickSQL(sql) {
+  document.getElementById('sqlInput').value = sql;
+  switchTab('query');
+}
+
+// 列出所有表（通过 API）
+async function listTablesAPI() {
+  switchTab('query');
+  document.getElementById('sqlInput').value = 'SHOW TABLES';
+  const loading = document.getElementById('loading');
+  const errorBox = document.getElementById('errorBox');
+  const resultArea = document.getElementById('resultArea');
+  loading.classList.add('show');
+  errorBox.classList.remove('show');
+  resultArea.innerHTML = '';
+  try {
+    const res = await apiFetch('/v1/tables');
+    const data = await res.json();
+    loading.classList.remove('show');
+    if (data.success) {
+      let html = '<table class="result-table"><thead><tr><th>表名</th></tr></thead><tbody>';
+      if (data.data.rows.length === 0) {
+        html += '<tr><td style="text-align:center;color:#999;">当前数据库中没有表</td></tr>';
+      } else {
+        data.data.rows.forEach(r => { html += '<tr><td>' + r[0] + '</td></tr>'; });
+      }
+      html += '</tbody></table>';
+      html += '<div class="result-info"><span class="success">✅ 共 ' + data.data.rows.length + ' 个表</span></div>';
+      resultArea.innerHTML = html;
+    } else {
+      errorBox.textContent = '❌ [' + (data.error?.code || 'ERROR') + '] ' + (data.error?.message || '');
+      errorBox.classList.add('show');
+    }
+  } catch(e) {
+    loading.classList.remove('show');
+    errorBox.textContent = '❌ 网络错误: ' + e.message;
+    errorBox.classList.add('show');
+  }
+}
+
+// 切换标签
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  const tabMap = { query: 0, schema: 1, api: 2 };
+  const idx = tabMap[name] || 0;
+  document.querySelectorAll('.tab')[idx].classList.add('active');
+  document.querySelectorAll('.tab-content')[idx].classList.add('active');
+}
+
+// 清理结果
+function clearResult() {
+  document.getElementById('resultArea').innerHTML = '';
+  document.getElementById('errorBox').classList.remove('show');
+}
+
+// 历史记录
+function addHistory(sql) {
+  const list = document.getElementById('historyList');
+  const empty = list.querySelector('.empty-state');
+  if (empty) empty.remove();
+  const item = document.createElement('div');
+  item.className = 'history-item';
+  item.textContent = sql;
+  item.onclick = function() {
+    document.getElementById('sqlInput').value = sql;
+    switchTab('query');
+  };
+  list.insertBefore(item, list.firstChild);
+  if (list.children.length > 20) list.lastChild.remove();
+}
+
+// 工具函数
+function fmtUptime(secs) {
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  let parts = [];
+  if (d > 0) parts.push(d + '天');
+  if (h > 0) parts.push(h + '时');
+  parts.push(m + '分');
+  parts.push(s + '秒');
+  return parts.join('');
+}
+
+// 自动刷新
+setInterval(refreshStatus, 5000);
+setInterval(refreshTables, 10000);
+
+init();
+</script>
+</body>
+</html>

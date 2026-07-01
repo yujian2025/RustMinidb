@@ -1,0 +1,67 @@
+[package]
+name = "rustminidb"
+version = "0.1.0"
+edition = "2021"
+description = "A lightweight embedded database with native REST API"
+authors = ["RustMinidb Contributors"]
+license = "BSL-1.1"
+repository = "https://github.com/rustminidb/rustminidb"
+homepage = "https://rustminidb.dev"
+keywords = ["database", "embedded", "sql", "rest-api", "iot"]
+categories = ["database-implementations", "embedded"]
+
+[features]
+default = ["server"]
+server = ["dep:axum", "dep:tokio", "dep:tower-http"]
+
+[dependencies]
+# 存储引擎
+redb = "2"
+
+# SQL 解析
+sqlparser = { version = "0.54", features = ["visitor"] }
+
+# 序列化
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = "1"
+
+# 日期时间
+chrono = { version = "0.4", features = ["serde"] }
+
+# 日志
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# REST API（default feature）
+axum = { version = "0.8", optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
+tower-http = { version = "0.6", features = ["cors"], optional = true }
+
+# 交互式 Shell
+rustyline = { version = "15", optional = true }
+
+# 工具
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+hex = "0.4"
+
+# 配置文件
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3"
+assert-json-diff = "2"
+reqwest = { version = "0.12", features = ["json"] }
+fastrand = "2"
+
+[lib]
+name = "rustminidb"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rustminidb"
+path = "src/main.rs"

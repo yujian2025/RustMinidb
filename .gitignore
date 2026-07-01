@@ -1,0 +1,20 @@
+# Rust 编译产物
+target/
+**/*.rs.bk
+
+# 运行时生成的文件
+*.log
+*.db
+*.db-journal
+*.db-wal
+
+# IDE 配置
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统
+.DS_Store
+Thumbs.db
