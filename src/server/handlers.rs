@@ -3,8 +3,7 @@
 use std::time::Instant;
 
 use axum::{
-    extract::{Json, Path, Query, State},
-    http::StatusCode,
+    extract::{Json, Path, State},
 };
 use serde::{Deserialize, Serialize};
 
@@ -153,7 +152,7 @@ pub async fn get_schema(
     match db.db_instance.engine.get_schema(&table) {
         Ok(Some(schema)) => {
             let mut rows = Vec::new();
-            let table_comment = schema.comment.clone().unwrap_or_default();
+            let _table_comment = schema.comment.clone().unwrap_or_default();
             for col in &schema.columns {
                 rows.push(vec![
                     serde_json::Value::String(col.name.clone()),

@@ -117,7 +117,7 @@ impl Planner {
         } = wc
         {
             if matches!(operator, ComparisonOp::Eq) {
-                if let Some(pk_col) = schema
+                if let Some(_pk_col) = schema
                     .columns
                     .iter()
                     .find(|c| c.is_primary_key && c.name == *column)
@@ -146,6 +146,7 @@ mod tests {
                     nullable: false,
                     is_primary_key: true,
                     default: None,
+                    comment: None,
                 },
                 crate::sql::types::ColumnDef {
                     name: "name".into(),
@@ -153,9 +154,11 @@ mod tests {
                     nullable: false,
                     is_primary_key: false,
                     default: None,
+                    comment: None,
                 },
             ],
             primary_key: vec!["id".into()],
+            comment: None,
         };
 
         let stmt = SqlStatement::Select {
@@ -194,8 +197,10 @@ mod tests {
                 nullable: false,
                 is_primary_key: true,
                 default: None,
+                comment: None,
             }],
             primary_key: vec!["id".into()],
+            comment: None,
         };
 
         let stmt = SqlStatement::Select {

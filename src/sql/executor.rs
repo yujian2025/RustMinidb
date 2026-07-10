@@ -9,7 +9,7 @@ use crate::error::{ExecError, Result};
 use crate::sql::parser::{
     compare_values, ComparisonOp, SqlStatement, WhereClause,
 };
-use crate::sql::planner::{PlanNode, Planner};
+use crate::sql::planner::Planner;
 use crate::sql::types::{ColumnDef, ColumnType, Row, Value};
 use crate::storage::engine::SharedEngine;
 use crate::storage::schema::{pk_value, row_from_map, TableSchema};

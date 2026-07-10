@@ -4,11 +4,17 @@ version = "0.1.0"
 edition = "2021"
 description = "A lightweight embedded database with native REST API"
 authors = ["RustMinidb Contributors"]
-license = "BSL-1.1"
+license = "BSL-1.0"
 repository = "https://github.com/rustminidb/rustminidb"
 homepage = "https://rustminidb.dev"
+documentation = "https://docs.rs/rustminidb"
+rust-version = "1.85"
 keywords = ["database", "embedded", "sql", "rest-api", "iot"]
 categories = ["database-implementations", "embedded"]
+
+[package.metadata.docs.rs]
+all-features = true
+default-target = "x86_64-pc-windows-msvc"
 
 [features]
 default = ["server"]

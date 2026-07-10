@@ -100,7 +100,7 @@ impl AppState {
     }
 
     /// 获取当前数据库实例
-    pub fn db(&self) -> std::sync::RwLockReadGuard<AppStateInner> {
+    pub fn db(&self) -> std::sync::RwLockReadGuard<'_, AppStateInner> {
         self.inner.read().unwrap()
     }
 

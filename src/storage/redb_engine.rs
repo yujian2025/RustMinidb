@@ -289,6 +289,7 @@ mod tests {
                     nullable: false,
                     is_primary_key: true,
                     default: None,
+                    comment: None,
                 },
                 ColumnDef {
                     name: "name".into(),
@@ -296,9 +297,11 @@ mod tests {
                     nullable: false,
                     is_primary_key: false,
                     default: None,
+                    comment: None,
                 },
             ],
             primary_key: vec!["id".into()],
+            comment: None,
         }
     }
 

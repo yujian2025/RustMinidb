@@ -593,14 +593,14 @@ pub fn global_event_bus() -> Arc<EventBus> {
 // ── 便捷函数（全局 Metrics 代理） ──
 
 /// 记录查询（快捷方式）
-pub fn record_query(sql: &str, elapsed_us: u64, rows: u64) {
+pub fn record_query(_sql: &str, elapsed_us: u64, rows: u64) {
     let m = global_metrics();
     m.record_query(true, elapsed_us);
     m.record_rows_read(rows);
 }
 
 /// 记录写操作（快捷方式）
-pub fn record_write(sql: &str, elapsed_us: u64, rows: u64) {
+pub fn record_write(_sql: &str, elapsed_us: u64, rows: u64) {
     let m = global_metrics();
     m.record_query(true, elapsed_us);
     m.record_rows_written(rows);

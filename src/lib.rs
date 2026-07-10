@@ -170,7 +170,6 @@ pub fn version() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sql::types::ColumnType;
     use tempfile::TempDir;
 
     #[test]

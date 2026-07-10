@@ -23,7 +23,7 @@ impl TableSchema {
             ));
         }
 
-        for (i, (col, val)) in self.columns.iter().zip(values.iter()).enumerate() {
+        for (_i, (col, val)) in self.columns.iter().zip(values.iter()).enumerate() {
             if *val == Value::Null && !col.nullable {
                 return Err(format!("列 '{}' 不能为 NULL", col.name));
             }

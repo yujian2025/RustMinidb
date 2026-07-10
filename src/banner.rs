@@ -15,8 +15,13 @@ const FG_CYAN: &str = "\x1b[36m";
 const FG_GREEN: &str = "\x1b[32m";
 const FG_YELLOW: &str = "\x1b[33m";
 const FG_MAGENTA: &str = "\x1b[35m";
+
+// 未使用的颜色常量仅保留用于扩展
+#[allow(dead_code)]
 const FG_WHITE: &str = "\x1b[37m";
+#[allow(dead_code)]
 const FG_BLUE: &str = "\x1b[34m";
+#[allow(dead_code)]
 const FG_RED: &str = "\x1b[31m";
 
 /// 检测终端是否支持 ANSI 颜色
@@ -51,6 +56,7 @@ fn is_pipe_output() -> bool {
 }
 
 /// 带颜色的文本包装（自动降级）
+#[allow(unused_macros)]
 macro_rules! c {
     ($color:expr, $text:expr) => {
         if crate::banner::use_color() {

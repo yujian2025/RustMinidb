@@ -5,7 +5,7 @@
 
 use sqlparser::ast::{
     ColumnDef as SqlColumnDef, ColumnOption, DataType, Expr, ObjectType, Query, SelectItem,
-    SetExpr, Statement, TableWithJoins, Value as SqlValue, Ident, Assignment,
+    SetExpr, Statement, TableWithJoins, Value as SqlValue, Ident,
 };
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser::Parser as SqlParserParser;
@@ -271,7 +271,7 @@ impl SqlParser {
                     SelectItem::UnnamedExpr(Expr::Identifier(id)) => {
                         cols.push(id.to_string());
                     }
-                    SelectItem::ExprWithAlias { expr, alias } => {
+                    SelectItem::ExprWithAlias { expr: _, alias } => {
                         cols.push(alias.to_string());
                     }
                     SelectItem::Wildcard { .. } => {
@@ -539,6 +539,7 @@ impl SqlParser {
         }
     }
 
+    #[allow(dead_code)]
     fn ident_to_string(id: &Ident) -> String {
         id.to_string()
     }
