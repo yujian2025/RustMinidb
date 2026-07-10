@@ -5,7 +5,6 @@
 pub mod auth;
 pub mod error;
 pub mod handlers;
-pub mod metrics;
 pub mod routes;
 
 pub use error::AppState;

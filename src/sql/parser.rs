@@ -15,6 +15,7 @@ use crate::sql::types::{ColumnDef, ColumnType, Value};
 
 /// RustMinidb 支持的 SQL 语句类型（MVP）
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum SqlStatement {
     CreateTable {
         name: String,
@@ -50,6 +51,7 @@ pub enum SqlStatement {
 
 /// WHERE 条件
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum WhereClause {
     Simple {
         column: String,
@@ -62,6 +64,7 @@ pub enum WhereClause {
 
 /// 比较操作符
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum ComparisonOp {
     Eq,    // =
     NotEq, // <>

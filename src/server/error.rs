@@ -5,7 +5,6 @@ use std::sync::{Arc, OnceLock, RwLock};
 
 use crate::error::RustMinidbError;
 use crate::sql::executor::Executor;
-use crate::server::metrics::Metrics;
 use crate::storage::engine::SharedEngine;
 use crate::storage::redb_engine::RedbEngine;
 
@@ -41,7 +40,6 @@ pub struct AppStateInner {
     pub db_dir: String,
     pub db_instance: DbInstance,
     pub start_time: std::time::Instant,
-    pub metrics: Arc<Metrics>,
     /// API 访问令牌（None 表示不启用认证）
     pub api_token: Option<String>,
 }
@@ -61,7 +59,6 @@ impl AppState {
                 db_dir: db_dir.to_string(),
                 db_instance,
                 start_time: std::time::Instant::now(),
-                metrics: Metrics::new(),
                 api_token,
             })),
         })
@@ -83,7 +80,6 @@ impl AppState {
                 db_dir: ".".to_string(),
                 db_instance,
                 start_time: std::time::Instant::now(),
-                metrics: Metrics::new(),
                 api_token,
             })),
         }
@@ -91,7 +87,7 @@ impl AppState {
 
     /// 切换数据库
     pub fn switch_db(&self, db_name: &str) -> Result<(), RustMinidbError> {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self.inner.write().expect("AppState lock poisoned");
         let db_path = Self::db_path(&inner.db_dir, db_name);
         let db_instance = DbInstance::from_path(&db_path)?;
         inner.current_db = db_name.to_string();
@@ -101,12 +97,12 @@ impl AppState {
 
     /// 获取当前数据库实例
     pub fn db(&self) -> std::sync::RwLockReadGuard<'_, AppStateInner> {
-        self.inner.read().unwrap()
+        self.inner.read().expect("AppState lock poisoned")
     }
 
     /// 可用数据库列表
     pub fn list_databases(&self) -> Result<Vec<String>, RustMinidbError> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read().expect("AppState lock poisoned");
         let dir = Path::new(&inner.db_dir);
         let mut databases = Vec::new();
         if dir.exists() {
@@ -125,7 +121,7 @@ impl AppState {
 
     /// 创建新数据库
     pub fn create_database(&self, db_name: &str) -> Result<(), RustMinidbError> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read().expect("AppState lock poisoned");
         let db_path = Self::db_path(&inner.db_dir, db_name);
         // 创建空数据库文件
         let _ = RedbEngine::open(&db_path)?;
@@ -138,11 +134,11 @@ impl AppState {
         } else {
             format!("{}.db", db_name)
         };
-        format!("{}\\{}", db_dir.trim_end_matches('\\'), name)
+        Path::new(db_dir).join(&name).to_string_lossy().to_string()
     }
 
     /// 获取服务器运行时长（秒）
     pub fn uptime_secs(&self) -> u64 {
-        self.inner.read().unwrap().start_time.elapsed().as_secs()
+        self.inner.read().expect("AppState lock poisoned").start_time.elapsed().as_secs()
     }
 }

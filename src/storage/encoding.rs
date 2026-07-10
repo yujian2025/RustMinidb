@@ -31,7 +31,6 @@ pub fn serialize_value(val: &Value) -> Vec<u8> {
 }
 
 /// 反序列化主键
-#[allow(dead_code)]
 pub fn deserialize_value(bytes: &[u8]) -> Value {
     if bytes.is_empty() {
         return Value::Null;

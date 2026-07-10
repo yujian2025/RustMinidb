@@ -36,6 +36,7 @@ pub enum Commands {
 
         /// 最大连接数
         #[arg(long, default_value_t = 100)]
+        #[allow(dead_code)]
         max_connections: u32,
 
         /// API 访问令牌（Bearer Token），为空则不启用认证。

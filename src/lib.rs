@@ -111,7 +111,9 @@ impl Database {
                     .collect();
                 Ok(maps)
             }
-            _ => Ok(vec![]),
+            _ => Err(crate::error::ExecError::NotImplemented(
+                "query() 只能用于 SELECT 语句，非查询语句请使用 execute()".into()
+            ).into()),
         }
     }
 

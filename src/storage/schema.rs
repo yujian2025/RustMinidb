@@ -51,15 +51,7 @@ impl TableSchema {
 
     /// 检查类型是否匹配
     fn type_matches(col_type: &ColumnType, val: &Value) -> bool {
-        matches!(
-            (col_type, val),
-            (ColumnType::Integer, Value::Integer(_))
-                | (ColumnType::Float, Value::Float(_))
-                | (ColumnType::Text, Value::Text(_))
-                | (ColumnType::Blob, Value::Blob(_))
-                | (ColumnType::Boolean, Value::Boolean(_))
-                | (ColumnType::Timestamp, Value::Timestamp(_))
-        )
+        crate::sql::types::type_matches(col_type, val)
     }
 }
 

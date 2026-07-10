@@ -253,45 +253,7 @@ fn cmd_shell(db: String) -> Result<()> {
                             rows_affected,
                         } => {
                             monitor::record_query(line, elapsed_us, rows.len() as u64);
-
-                            if !columns.is_empty() {
-                                // 表格式输出
-                                let mut col_widths: Vec<usize> = columns
-                                    .iter()
-                                    .map(|c| c.len())
-                                    .collect();
-
-                                for row in &rows {
-                                    for (i, val) in row.iter().enumerate() {
-                                        if i < col_widths.len() {
-                                            let val_str = format!("{}", val_display(val));
-                                            col_widths[i] = col_widths[i].max(val_str.len());
-                                        }
-                                    }
-                                }
-
-                                // 分隔线
-                                print_separator(&col_widths);
-                                // 表头
-                                print_row(&columns, &col_widths);
-                                print_separator(&col_widths);
-                                // 数据行
-                                for row in &rows {
-                                    let strs: Vec<String> = row
-                                        .iter()
-                                        .map(|v| val_display(v))
-                                        .collect();
-                                    print_row(&strs, &col_widths);
-                                }
-                                print_separator(&col_widths);
-
-                                println!(
-                                    "{} row(s) in set ({:.2}ms)",
-                                    rows_affected, elapsed
-                                );
-                            } else {
-                                println!("Query set ({:.2}ms)", elapsed);
-                            }
+                            print_query_result(&columns, &rows, rows_affected, elapsed);
                         }
                         ExecuteResult::WriteResult {
                             rows_affected,
@@ -405,33 +367,7 @@ fn cmd_exec(db: String, sql: String, format: String) -> Result<()> {
                     rows,
                     rows_affected,
                 } => {
-                    if columns.is_empty() {
-                        println!("Query set ({:.2}ms)", elapsed);
-                    } else {
-                        let mut col_widths: Vec<usize> =
-                            columns.iter().map(|c| c.len()).collect();
-                        for row in &rows {
-                            for (i, val) in row.iter().enumerate() {
-                                if i < col_widths.len() {
-                                    let vs = format!("{}", val_display(val));
-                                    col_widths[i] = col_widths[i].max(vs.len());
-                                }
-                            }
-                        }
-                        print_separator(&col_widths);
-                        print_row(&columns, &col_widths);
-                        print_separator(&col_widths);
-                        for row in &rows {
-                            let strs: Vec<String> =
-                                row.iter().map(|v| val_display(v)).collect();
-                            print_row(&strs, &col_widths);
-                        }
-                        print_separator(&col_widths);
-                        println!(
-                            "{} row(s) in set ({:.2}ms)",
-                            rows_affected, elapsed
-                        );
-                    }
+                    print_query_result(&columns, &rows, rows_affected, elapsed);
                 }
                 ExecuteResult::WriteResult {
                     rows_affected,
@@ -488,18 +424,25 @@ fn cmd_export(
     db: String,
     output: Option<String>,
     table: Option<String>,
-    _include_data: bool,
-    _include_create: bool,
+    include_data: bool,
+    include_create: bool,
 ) -> Result<()> {
     use std::io::Write;
 
     let engine = Arc::new(RedbEngine::open(&db)?) as rustminidb::storage::engine::SharedEngine;
 
+    // 构建带用户配置的导出器
+    let config = rustminidb::migration::ExportConfig {
+        include_data,
+        include_create,
+        ..Default::default()
+    };
+    let exporter = rustminidb::migration::Exporter::with_config(engine, config);
+
     let sql = if let Some(table_name) = table {
-        let exporter = rustminidb::migration::Exporter::new(engine);
         exporter.export_table_to_string(&table_name)?
     } else {
-        rustminidb::migration::export_database_to_string(engine)?
+        exporter.export_to_string()?
     };
 
     match output {
@@ -519,6 +462,35 @@ fn cmd_export(
 }
 
 // ── 辅助函数 ──
+
+/// 表格式打印查询结果（shell 和 exec 命令共用）
+fn print_query_result(columns: &[String], rows: &[Vec<rustminidb::sql::types::Value>], rows_affected: usize, elapsed_ms: f64) {
+    if columns.is_empty() {
+        println!("Query set ({:.2}ms)", elapsed_ms);
+        return;
+    }
+
+    let mut col_widths: Vec<usize> = columns.iter().map(|c| c.len()).collect();
+    for row in rows {
+        for (i, val) in row.iter().enumerate() {
+            if i < col_widths.len() {
+                let val_str = val_display(val);
+                col_widths[i] = col_widths[i].max(val_str.len());
+            }
+        }
+    }
+
+    print_separator(&col_widths);
+    print_row(columns, &col_widths);
+    print_separator(&col_widths);
+    for row in rows {
+        let strs: Vec<String> = row.iter().map(|v| val_display(v)).collect();
+        print_row(&strs, &col_widths);
+    }
+    print_separator(&col_widths);
+
+    println!("{} row(s) in set ({:.2}ms)", rows_affected, elapsed_ms);
+}
 
 fn val_display(val: &rustminidb::sql::types::Value) -> String {
     match val {

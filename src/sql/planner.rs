@@ -5,10 +5,12 @@
 
 use crate::sql::parser::{ComparisonOp, OrderBy, SqlStatement, WhereClause};
 use crate::sql::types::Value;
+use crate::error::Result;
 use crate::storage::schema::TableSchema;
 
 /// 查询计划节点
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum PlanNode {
     /// 全表扫描
     SeqScan { table: String },
@@ -42,7 +44,7 @@ pub struct Planner;
 
 impl Planner {
     /// 为 SELECT 语句生成执行计划
-    pub fn plan_select(stmt: &SqlStatement, schema: &TableSchema) -> PlanNode {
+    pub fn plan_select(stmt: &SqlStatement, schema: &TableSchema) -> Result<PlanNode> {
         match stmt {
             SqlStatement::Select {
                 table,
@@ -102,9 +104,11 @@ impl Planner {
                     };
                 }
 
-                plan
+                Ok(plan)
             }
-            _ => panic!("plan_select 只接收 SELECT 语句"),
+            _ => Err(crate::error::ExecError::NotImplemented(
+                "plan_select 只接收 SELECT 语句".into()
+            ).into()),
         }
     }
 
@@ -174,7 +178,7 @@ mod tests {
             offset: None,
         };
 
-        let plan = Planner::plan_select(&stmt, &schema);
+        let plan = Planner::plan_select(&stmt, &schema).unwrap();
         match plan {
             PlanNode::Projection { input, .. } => match *input {
                 PlanNode::PointLookup { table, pk } => {
@@ -212,7 +216,7 @@ mod tests {
             offset: None,
         };
 
-        let plan = Planner::plan_select(&stmt, &schema);
+        let plan = Planner::plan_select(&stmt, &schema).unwrap();
         match plan {
             PlanNode::Projection { input, .. } => match *input {
                 PlanNode::SeqScan { table } => assert_eq!(table, "test"),

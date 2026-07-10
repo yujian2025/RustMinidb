@@ -194,7 +194,7 @@ impl Executor {
             .ok_or_else(|| ExecError::TableNotFound(table.to_string()))?;
 
         // 生成执行计划
-        let plan = Planner::plan_select(stmt, &schema);
+        let plan = Planner::plan_select(stmt, &schema)?;
 
         // 执行计划
         let rows = self.evaluate_plan(&plan, &schema)?;
