@@ -453,7 +453,7 @@ mod tests {
 
     #[test]
     fn test_detailed_banner_contains_features() {
-        let text = banner_text_detailed("0.1.0", &["server", "shell"]);
+        let text = banner_text_detailed(env!("CARGO_PKG_VERSION"), &["server", "shell"]);
         assert!(text.contains("server"));
         assert!(text.contains("shell"));
     }

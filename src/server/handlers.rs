@@ -107,7 +107,7 @@ pub async fn health_check(
         ],
         rows: vec![vec![
             serde_json::Value::String("ok".into()),
-            serde_json::Value::String("0.1.0".into()),
+            serde_json::Value::String(crate::version().into()),
             serde_json::Value::Number(uptime.into()),
             serde_json::Value::Number(table_count.into()),
             serde_json::Value::String(current_db),

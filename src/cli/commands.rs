@@ -12,7 +12,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(name = "rustminidb")]
 #[command(about = "A lightweight embedded database with native REST API")]
-#[command(version = "0.1.0")]
+#[command(version = "0.1.1")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
