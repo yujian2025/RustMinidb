@@ -1,8 +1,8 @@
 {
-  "tag_name": "v0.1.0",
+  "tag_name": "v0.2.0",
   "target_commitish": "main",
-  "name": "v0.1.0",
-  "body": "## 🚀 RustMinidb v0.1.0\n\nInitial release of **RustMinidb** — a lightweight embedded relational database with native REST API.\n\n### ✨ Features\n\n- **Local Storage Engine**: Built on redb for fast, embedded key-value storage\n- **SQL Parser & Planner**: Support for basic SQL operations (CREATE, INSERT, SELECT, UPDATE, DELETE, DROP)\n- **REST API Server**: Built-in HTTP server using axum with CORS support\n- **Interactive CLI Shell**: Full-featured command-line interface\n- **Banner & Migration**: Hot-reload banner and schema migration support\n- **Monitoring**: Query metrics and performance tracking\n- **Cross-platform**: Runs on Windows, Linux, and macOS\n\n### 📦 Assets\n\n- `rustminidb.exe` — Windows binary (64-bit)\n- `rustminidb.pdb` — Windows debug symbols",
+  "name": "v0.2.0",
+  "body": "## v0.2.0 New Features\n\n### What's New\n- Multi-database support (open multiple .db files simultaneously)\n- File watching with auto-reload (--watch flag)\n- New R logo with tech-style ASCII art\n- Shell multi-db switching (.use, .databases commands)\n- Centralized version management (Cargo.toml single source)\n\n### Downloads\n- [rustminidb.exe](https://github.com/yujian2025/RustMinidb/releases/download/v0.2.0/rustminidb.exe) (Windows)",
   "draft": false,
   "prerelease": false
 }
