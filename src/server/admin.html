@@ -159,12 +159,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
         <div class="info-card" style="padding:8px;"><div class="label">状态</div><div class="value" id="statusBadge" style="font-size:14px;">-</div></div>
       </div>
     </div>
-    <!-- SQL 查询 -->
+    <!-- SQL 查询 + 表结构 -->
     <div class="panel">
       <div class="tabs">
         <div class="tab active" onclick="switchTab('query')">🔍 SQL 查询</div>
         <div class="tab" onclick="switchTab('schema')">📐 表结构</div>
-        <div class="tab" onclick="switchTab('api')">📡 API 文档</div>
       </div>
       <div id="tab-query" class="tab-content active">
         <textarea class="sql-editor" id="sqlInput" placeholder="请输入 SQL 语句，例如：SELECT * FROM sensors">SELECT * FROM sensors</textarea>
@@ -187,52 +186,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
           <div id="dataTableArea"></div>
         </div>
       </div>
-      <div id="tab-api" class="tab-content">
-        <div class="api-section">
-          <h4>🔌 REST API 接口文档</h4>
-          <p style="font-size:13px;color:#666;margin-bottom:16px;">RustMinidb 提供以下 HTTP API 接口，所有请求和响应均为 JSON 格式。</p>
-
-          <h4>📊 服务器信息</h4>
-          <div><span class="api-method api-get">GET</span><span class="api-path">/v1/health</span></div>
-          <div class="api-desc">健康检查，返回服务器状态、版本、运行时间、表数、当前数据库</div>
-          <div class="api-code">curl http://localhost:8080/v1/health</div>
-
-          <h4>🗄️ 数据库管理</h4>
-          <div><span class="api-method api-get">GET</span><span class="api-path">/v1/databases</span></div>
-          <div class="api-desc">列出所有数据库文件，标记当前激活的数据库</div>
-          <div class="api-code">curl http://localhost:8080/v1/databases</div>
-
-          <div><span class="api-method api-post">POST</span><span class="api-path">/v1/databases/create</span></div>
-          <div class="api-desc">创建新数据库并自动切换到该数据库</div>
-          <div class="api-code">curl -X POST http://localhost:8080/v1/databases/create \<br>  -H "Content-Type: application/json" \<br>  -d '{"name":"myapp"}'</div>
-
-          <div><span class="api-method api-post">POST</span><span class="api-path">/v1/databases/switch</span></div>
-          <div class="api-desc">切换到指定数据库（不存在时可通过 create:true 自动创建）</div>
-          <div class="api-code">curl -X POST http://localhost:8080/v1/databases/switch \<br>  -H "Content-Type: application/json" \<br>  -d '{"name":"myapp"}'</div>
-
-          <h4>📋 表管理</h4>
-          <div><span class="api-method api-get">GET</span><span class="api-path">/v1/tables</span></div>
-          <div class="api-desc">列出当前数据库中的所有表</div>
-          <div class="api-code">curl http://localhost:8080/v1/tables</div>
-
-          <div><span class="api-method api-get">GET</span><span class="api-path">/v1/schema/{table}</span></div>
-          <div class="api-desc">查看指定表的列名、类型、主键、非空约束</div>
-          <div class="api-code">curl http://localhost:8080/v1/schema/sensors</div>
-
-          <h4>📝 SQL 执行</h4>
-          <div><span class="api-method api-post">POST</span><span class="api-path">/v1/query</span></div>
-          <div class="api-desc">执行 SQL 语句（CREATE / INSERT / SELECT / UPDATE / DELETE / DROP）</div>
-          <div class="api-code"># 创建表<br>curl -X POST http://localhost:8080/v1/query \<br>  -H "Content-Type: application/json" \<br>  -d '{"sql":"CREATE TABLE users (id INT PRIMARY KEY, name TEXT, age INT)"}'<br><br># 插入数据<br>curl -X POST http://localhost:8080/v1/query \<br>  -H "Content-Type: application/json" \<br>  -d '{"sql":"INSERT INTO users VALUES (1, '\''Alice'\'', 30)"}'<br><br># 查询<br>curl -s http://localhost:8080/v1/query \<br>  -H "Content-Type: application/json" \<br>  -d '{"sql":"SELECT * FROM users WHERE age > 20 ORDER BY name LIMIT 10"}'<br><br># 更新<br>curl -X POST http://localhost:8080/v1/query \<br>  -H "Content-Type: application/json" \<br>  -d '{"sql":"UPDATE users SET age = 31 WHERE id = 1"}'<br><br># 删除<br>curl -X POST http://localhost:8080/v1/query \<br>  -H "Content-Type: application/json" \<br>  -d '{"sql":"DELETE FROM users WHERE id = 2"}'</div>
-
-          <h4>📥 数据导入</h4>
-          <div><span class="api-method api-post">POST</span><span class="api-path">/v1/import</span></div>
-          <div class="api-desc">批量导入 JSON 数组格式的数据到指定表</div>
-          <div class="api-code">curl -X POST http://localhost:8080/v1/import \<br>  -H "Content-Type: application/json" \<br>  -d '{"table":"users","data":[{"id":3,"name":"Charlie","age":28},{"id":4,"name":"Diana","age":35}]}'</div>
-
-          <h4>📌 通用说明</h4>
-          <div class="api-code" style="background:#fff8e1;border-color:#ffe082;">所有 API 统一返回格式：<br>{<br>  "success": true/false,<br>  "data": { "columns":[...], "rows":[[...],...], "rowsAffected":N, "timeMs":1.23 },<br>  "error": { "code":"ERROR_CODE", "message":"错误描述" }<br>}<br><br>错误码: PARSE_ERROR, TABLE_NOT_FOUND, PRIMARY_KEY_CONFLICT, TYPE_MISMATCH, VALIDATION_ERROR</div>
-        </div>
-      </div>
     </div>
 
     <!-- 快速操作 -->
@@ -242,6 +195,57 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
         <button class="btn btn-success btn-sm" onclick="quickSQL('CREATE TABLE demo (id INT PRIMARY KEY, name TEXT, value FLOAT)')">建表示例</button>
         <button class="btn btn-sm" onclick="listTablesAPI()" style="background:#e0e0e0;">列出所有表</button>
         <button class="btn btn-sm btn-danger" onclick="if(confirm('确定要清除所有结果吗？'))clearResult()">清除结果</button>
+      </div>
+    </div>
+
+    <!-- API 文档 + 在线测试 -->
+    <div class="panel" id="apiPanel">
+      <h3>📡 REST API 在线测试</h3>
+      <div class="api-test-container">
+        <div class="api-test-toolbar">
+          <select id="apiMethodSelect" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;outline:none;">
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+          </select>
+          <input id="apiPathInput" type="text" value="/v1/health" style="flex:1;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;font-family:monospace;outline:none;">
+          <button class="btn btn-primary" onclick="executeApiTest()">▶ 发送</button>
+          <button class="btn btn-sm" onclick="clearApiResult()" style="background:#e0e0e0;">清除</button>
+        </div>
+        <div id="apiRequestBody" style="display:none;margin-top:8px;">
+          <div id="apiBodyTemplate" style="display:none;">
+            <!-- 模板字段由 JS 动态生成 -->
+          </div>
+          <textarea id="apiBodyInput" rows="4" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;font-family:monospace;outline:none;resize:vertical;display:none;" placeholder='请求体 JSON，例如：{"sql":"SELECT 1"}'></textarea>
+          <div style="margin-top:4px;font-size:11px;color:#999;">
+            <label><input type="checkbox" id="apiTemplateMode" checked onchange="toggleApiTemplateMode()"> 使用模板模式（可修改字段后自动生成 JSON）</label>
+          </div>
+        </div>
+        <div class="api-quick-btns" style="margin-top:10px;">
+          <div style="font-size:12px;color:#888;margin-bottom:6px;font-weight:600;">🟢 GET 请求</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">
+            <button class="btn btn-sm" onclick="setApiTest('GET','/v1/health')" style="background:#e8f5e9;color:#2e7d32;border:1px solid #c8e6c9;font-weight:600;">🏥 健康检查</button>
+            <button class="btn btn-sm" onclick="setApiTest('GET','/v1/databases')" style="background:#e8f5e9;color:#2e7d32;border:1px solid #c8e6c9;font-weight:600;">🗄️ 数据库列表</button>
+            <button class="btn btn-sm" onclick="setApiTest('GET','/v1/tables')" style="background:#e8f5e9;color:#2e7d32;border:1px solid #c8e6c9;font-weight:600;">📋 表列表</button>
+            <button class="btn btn-sm" onclick="setApiTest('GET','/v1/export')" style="background:#e8f5e9;color:#2e7d32;border:1px solid #c8e6c9;font-weight:600;">📤 导出 SQL</button>
+            <button class="btn btn-sm" onclick="setApiTest('GET','/v1/metrics')" style="background:#e8f5e9;color:#2e7d32;border:1px solid #c8e6c9;font-weight:600;">📊 监控指标</button>
+          </div>
+          <div style="font-size:12px;color:#888;margin-bottom:6px;font-weight:600;">🟠 POST 请求</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            <button class="btn btn-sm" onclick="setApiTest('POST','/v1/query',{sql:'SELECT * FROM sensors LIMIT 5'})" style="background:#fff3e0;color:#e65100;border:1px solid #ffe0b2;font-weight:600;">📝 SQL 查询</button>
+            <button class="btn btn-sm" onclick="setApiTest('POST','/v1/query',{sql:'CREATE TABLE t (id INT PRIMARY KEY, v TEXT)'})" style="background:#fff3e0;color:#e65100;border:1px solid #ffe0b2;font-weight:600;">📝 建表</button>
+            <button class="btn btn-sm" onclick="setApiTest('POST','/v1/query',{sql:'INSERT INTO t VALUES (1,' + "'hello')" + '})" style="background:#fff3e0;color:#e65100;border:1px solid #ffe0b2;font-weight:600;">📝 插入数据</button>
+            <button class="btn btn-sm" onclick="setApiTest('POST','/v1/import',{table:'users',data:[{id:1,name:'Alice',age:30},{id:2,name:'Bob',age:25}]})" style="background:#fff3e0;color:#e65100;border:1px solid #ffe0b2;font-weight:600;">📥 数据导入</button>
+            <button class="btn btn-sm" onclick="setApiTest('POST','/v1/databases/create',{name:'new_db'})" style="background:#fff3e0;color:#e65100;border:1px solid #ffe0b2;font-weight:600;">➕ 创建数据库</button>
+            <button class="btn btn-sm" onclick="setApiTest('POST','/v1/databases/switch',{name:'data.db',create:false})" style="background:#fff3e0;color:#e65100;border:1px solid #ffe0b2;font-weight:600;">🔀 切换数据库</button>
+          </div>
+        </div>
+        <div id="apiTestResult" style="margin-top:8px;display:none;">
+          <div class="api-result-header" style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#f5f5f5;border-radius:4px 4px 0 0;font-size:12px;color:#666;">
+            <span id="apiStatusBadge">状态码: -</span>
+            <span id="apiTimeBadge">耗时: -</span>
+          </div>
+          <pre id="apiResultBody" style="margin:0;padding:10px;background:#1e1e1e;color:#d4d4d4;border-radius:0 0 4px 4px;font-size:12px;overflow:auto;max-height:300px;white-space:pre-wrap;word-break:break-all;"></pre>
+        </div>
       </div>
     </div>
   </div>
@@ -323,6 +327,203 @@ async function apiFetch(path, options = {}) {
   return res;
 }
 
+// ── API 在线测试 ──
+
+/// 存储当前模板定义
+let currentApiTemplate = null;
+
+/// 设置 API 测试请求
+function setApiTest(method, path, body) {
+  document.getElementById('apiMethodSelect').value = method;
+  document.getElementById('apiPathInput').value = path;
+  const bodyArea = document.getElementById('apiRequestBody');
+  const bodyInput = document.getElementById('apiBodyInput');
+  const templateDiv = document.getElementById('apiBodyTemplate');
+  const templateCheck = document.getElementById('apiTemplateMode');
+
+  currentApiTemplate = null;
+
+  if (body && method === 'POST') {
+    bodyArea.style.display = 'block';
+    // 尝试生成模板
+    if (typeof body === 'object' && !Array.isArray(body)) {
+      currentApiTemplate = body;
+      templateDiv.style.display = 'block';
+      bodyInput.style.display = 'none';
+      templateCheck.checked = true;
+      renderApiTemplate(body);
+    } else {
+      templateDiv.style.display = 'none';
+      bodyInput.style.display = 'block';
+      templateCheck.checked = false;
+      bodyInput.value = typeof body === 'string' ? body : JSON.stringify(body, null, 2);
+    }
+  } else {
+    bodyInput.value = '';
+    templateDiv.style.display = 'none';
+    bodyInput.style.display = 'block';
+    bodyArea.style.display = method === 'POST' ? 'block' : 'none';
+  }
+  document.getElementById('apiTestResult').style.display = 'none';
+  // 滚动到 API 面板
+  document.getElementById('apiPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/// 渲染 API 模板表单
+function renderApiTemplate(template) {
+  const container = document.getElementById('apiBodyTemplate');
+  let html = '<div style="background:#fafafa;border:1px solid #e0e0e0;border-radius:6px;padding:10px;">';
+  html += '<div style="font-size:12px;color:#888;margin-bottom:8px;">✏️ 修改字段值后自动生成 JSON：</div>';
+  for (const [key, value] of Object.entries(template)) {
+    const displayVal = typeof value === 'string' ? value : JSON.stringify(value);
+    const isLong = String(displayVal).length > 30;
+    html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">';
+    html += '<label style="font-size:13px;font-weight:600;color:#333;min-width:80px;text-align:right;">' + key + ':</label>';
+    if (isLong) {
+      html += '<textarea id="tpl-' + key + '" rows="2" style="flex:1;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;font-family:monospace;outline:none;">' + displayVal + '</textarea>';
+    } else {
+      html += '<input id="tpl-' + key + '" type="text" value="' + displayVal + '" style="flex:1;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;font-family:monospace;outline:none;">';
+    }
+    html += '</div>';
+  }
+  html += '<div style="margin-top:8px;padding:6px 10px;background:#f5f5f5;border-radius:4px;font-size:12px;color:#666;font-family:monospace;white-space:pre-wrap;word-break:break-all;" id="apiPreviewJson">' + JSON.stringify(template, null, 2) + '</div>';
+  html += '</div>';
+  container.innerHTML = html;
+
+  // 绑定输入事件，实时更新预览
+  container.querySelectorAll('input, textarea').forEach(el => {
+    el.addEventListener('input', updateApiTemplatePreview);
+  });
+}
+
+/// 更新模板预览 JSON
+function updateApiTemplatePreview() {
+  if (!currentApiTemplate) return;
+  const result = {};
+  for (const key of Object.keys(currentApiTemplate)) {
+    const el = document.getElementById('tpl-' + key);
+    if (el) {
+      const raw = el.value;
+      // 尝试解析为 JSON 对象/数组/数字
+      try { result[key] = JSON.parse(raw); } catch(e) {
+        // 尝试数字
+        const num = Number(raw);
+        if (!isNaN(num) && raw.trim() !== '') { result[key] = num; }
+        else { result[key] = raw; }
+      }
+    }
+  }
+  document.getElementById('apiPreviewJson').textContent = JSON.stringify(result, null, 2);
+}
+
+/// 切换模板/原始模式
+function toggleApiTemplateMode() {
+  const templateMode = document.getElementById('apiTemplateMode').checked;
+  const templateDiv = document.getElementById('apiBodyTemplate');
+  const bodyInput = document.getElementById('apiBodyInput');
+  if (templateMode && currentApiTemplate) {
+    templateDiv.style.display = 'block';
+    bodyInput.style.display = 'none';
+    renderApiTemplate(currentApiTemplate);
+  } else {
+    templateDiv.style.display = 'none';
+    bodyInput.style.display = 'block';
+    // 从模板生成 JSON
+    if (currentApiTemplate) {
+      bodyInput.value = getApiTemplateJson();
+    }
+  }
+}
+
+/// 获取模板生成的 JSON 字符串
+function getApiTemplateJson() {
+  if (!currentApiTemplate) return '';
+  const result = {};
+  for (const key of Object.keys(currentApiTemplate)) {
+    const el = document.getElementById('tpl-' + key);
+    if (el) {
+      const raw = el.value;
+      try { result[key] = JSON.parse(raw); } catch(e) {
+        const num = Number(raw);
+        if (!isNaN(num) && raw.trim() !== '') { result[key] = num; }
+        else { result[key] = raw; }
+      }
+    }
+  }
+  return JSON.stringify(result, null, 2);
+}
+
+/// 执行 API 测试
+async function executeApiTest() {
+  const method = document.getElementById('apiMethodSelect').value;
+  const path = document.getElementById('apiPathInput').value.trim();
+  const templateMode = document.getElementById('apiTemplateMode').checked;
+  const bodyInput = document.getElementById('apiBodyInput');
+  const resultDiv = document.getElementById('apiTestResult');
+  const statusBadge = document.getElementById('apiStatusBadge');
+  const timeBadge = document.getElementById('apiTimeBadge');
+  const resultBody = document.getElementById('apiResultBody');
+
+  if (!path) { alert('请输入 API 路径'); return; }
+
+  // 获取请求体
+  let requestBody = '';
+  if (method === 'POST') {
+    if (templateMode && currentApiTemplate) {
+      requestBody = getApiTemplateJson();
+    } else {
+      requestBody = bodyInput.value.trim();
+    }
+  }
+
+  resultDiv.style.display = 'block';
+  resultBody.textContent = '⏳ 请求中...';
+  statusBadge.textContent = '状态码: -';
+  timeBadge.textContent = '耗时: -';
+
+  const start = Date.now();
+  try {
+    const options = { method: method, headers: {} };
+    if (requestBody && method === 'POST') {
+      options.headers['Content-Type'] = 'application/json';
+      options.body = requestBody;
+    }
+    const res = await apiFetch(path, options);
+    const elapsed = Date.now() - start;
+    const body = await res.text();
+
+    statusBadge.textContent = '状态码: ' + res.status + ' ' + (res.ok ? '✅' : '❌');
+    timeBadge.textContent = '耗时: ' + elapsed + 'ms';
+
+    // 尝试美化 JSON
+    try {
+      const json = JSON.parse(body);
+      resultBody.textContent = JSON.stringify(json, null, 2);
+    } catch(e) {
+      resultBody.textContent = body;
+    }
+  } catch(e) {
+    const elapsed = Date.now() - start;
+    statusBadge.textContent = '状态码: ❌ 错误';
+    timeBadge.textContent = '耗时: ' + elapsed + 'ms';
+    resultBody.textContent = '❌ 请求失败: ' + e.message;
+  }
+}
+
+/// 清除 API 测试结果
+function clearApiResult() {
+  document.getElementById('apiTestResult').style.display = 'none';
+  document.getElementById('apiBodyInput').value = '';
+  document.getElementById('apiBodyTemplate').innerHTML = '';
+  currentApiTemplate = null;
+}
+
+/// 监听 API 方法切换，POST 时显示请求体输入框
+document.getElementById('apiMethodSelect').addEventListener('change', function() {
+  const bodyArea = document.getElementById('apiRequestBody');
+  bodyArea.style.display = this.value === 'POST' ? 'block' : 'none';
+});
+
 // 初始化
 async function init() {
   // 从 localStorage 恢复 Token
@@ -349,24 +550,28 @@ async function refreshDatabases() {
       sel.innerHTML = '';
       data.data.rows.forEach(r => {
         const opt = document.createElement('option');
-        opt.value = r[0].replace('.db','');
-        opt.textContent = r[0].replace('.db','');
+        const dbName = r[0]; // 保留 .db 后缀，保持与 API 一致
+        opt.value = dbName;
+        opt.textContent = dbName;
         if (r[1]) opt.selected = true;
         sel.appendChild(opt);
       });
     } else {
-      sel.innerHTML = '<option value="data">data</option>';
+      sel.innerHTML = '<option value="data.db">data.db</option>';
     }
   } catch(e) {}
 }
 
 // 切换数据库
 async function switchDatabase(name) {
+  if (!name) return;
+  // 确保带 .db 后缀
+  const dbName = name.endsWith('.db') ? name : name + '.db';
   try {
     const res = await apiFetch('/v1/databases/switch', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({name: name, create: false})
+      body: JSON.stringify({name: dbName, create: false})
     });
     const data = await res.json();
     if (data.success) {
@@ -374,19 +579,19 @@ async function switchDatabase(name) {
       document.getElementById('errorBox').classList.remove('show');
       await refreshStatus();
       await refreshTables();
-      showToast('已切换到数据库: ' + name);
+      showToast('已切换到数据库: ' + dbName);
     } else {
       // 如果不存在，尝试创建
       const createRes = await apiFetch('/v1/databases/switch', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({name: name, create: true})
+        body: JSON.stringify({name: dbName, create: true})
       });
       const createData = await createRes.json();
       if (createData.success) {
         await refreshDatabases();
         await refreshTables();
-        showToast('已创建并切换到数据库: ' + name);
+        showToast('已创建并切换到数据库: ' + dbName);
       }
     }
   } catch(e) {}
@@ -828,7 +1033,7 @@ async function listTablesAPI() {
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-  const tabMap = { query: 0, schema: 1, api: 2 };
+  const tabMap = { query: 0, schema: 1 };
   const idx = tabMap[name] || 0;
   document.querySelectorAll('.tab')[idx].classList.add('active');
   document.querySelectorAll('.tab-content')[idx].classList.add('active');
