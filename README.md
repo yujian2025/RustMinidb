@@ -21,17 +21,24 @@ RustMinidb 是一个使用 Rust 编写的轻量级嵌入式关系型数据库，
 
 ### 🌐 REST API 服务器
 
-| 端点 | 方法 | 认证 | 说明 |
-|---|---|---|---|---|
-| `/` | GET | ❌ 公开 | Web 管理后台页面 |
-| `/v1/health` | GET | ❌ 公开 | 健康检查 |
-| `/v1/query` | POST | ✅ Bearer Token | 执行 SQL 语句 |
-| `/v1/tables` | GET | ✅ Bearer Token | 列出所有表 |
-| `/v1/schema/{table}` | GET | ✅ Bearer Token | 查看表结构 |
-| `/v1/export` | GET | ✅ Bearer Token | 导出数据库为 SQL |
-| `/v1/metrics` | GET | ✅ Bearer Token | 运行时监控指标 |
-| `/v1/databases` | GET | ✅ Bearer Token | 多数据库管理 |
-| `/v1/import` | POST | ✅ Bearer Token | 数据导入 |
+**公开端点（免认证）：**
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/` | GET | Web 管理后台页面 |
+| `/v1/health` | GET | 健康检查（负载均衡器监控） |
+
+**需认证端点（Bearer Token）：**
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/v1/query` | POST | 执行 SQL 语句 |
+| `/v1/tables` | GET | 列出所有表 |
+| `/v1/schema/{table}` | GET | 查看指定表结构 |
+| `/v1/export` | GET | 导出数据库为 SQL |
+| `/v1/metrics` | GET | 运行时监控指标 |
+| `/v1/databases` | GET | 多数据库管理 |
+| `/v1/import` | POST | 数据导入 |
 
 ### 🛠️ 实用工具
 
