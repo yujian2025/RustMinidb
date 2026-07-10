@@ -1,8 +1,8 @@
 //! RustMinidb 命令行入口
 //!
 //! 支持子命令：
-//! - serve: 启动 HTTP 服务器
-//! - shell: 交互式 SQL 控制台
+//! - serve: 启动 HTTP 服务器（支持多数据库、文件监听）
+//! - shell: 交互式 SQL 控制台（支持多数据库切换、文件监听）
 //! - exec: 执行单条 SQL
 //! - init: 初始化数据库
 //! - export: 导出数据库为 SQL
@@ -42,10 +42,12 @@ fn main() -> Result<()> {
             host,
             port,
             db,
+            db_dir,
             max_connections: _,
+            watch,
             api_token,
-        } => cmd_serve(host, port, db, api_token),
-        Commands::Shell { db } => cmd_shell(db),
+        } => cmd_serve(host, port, db, db_dir, watch, api_token),
+        Commands::Shell { db, watch } => cmd_shell(db, watch),
         Commands::Exec { db, sql, format } => cmd_exec(db, sql, format),
         Commands::Init { db } => cmd_init(db),
         Commands::Export {
@@ -61,7 +63,14 @@ fn main() -> Result<()> {
 
 /// 启动 HTTP 服务器
 #[cfg(feature = "server")]
-fn cmd_serve(host: String, port: u16, db: String, api_token: Option<String>) -> Result<()> {
+fn cmd_serve(
+    host: String,
+    port: u16,
+    dbs: Vec<String>,
+    db_dir: String,
+    watch: bool,
+    api_token: Option<String>,
+) -> Result<()> {
     use rustminidb::banner;
     use rustminidb::server::build_routes;
     use rustminidb::server::error::AppState;
@@ -71,26 +80,56 @@ fn cmd_serve(host: String, port: u16, db: String, api_token: Option<String>) -> 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
         let addr = format!("{}:{}", host, port);
-        let db_path = std::path::Path::new(&db);
-        let db_dir = if let Some(parent) = db_path.parent() {
-            let p = parent.to_string_lossy().to_string();
-            if p.is_empty() { std::env::current_dir().unwrap_or_default().to_string_lossy().to_string() } else { p }
-        } else {
-            std::env::current_dir().unwrap_or_default().to_string_lossy().to_string()
-        };
-        let db_name = db_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "data.db".to_string());
 
-        // 打印服务器信息面板
-        banner::print_server_info(&host, port, &db_name);
+        // 解析数据库文件列表
+        let db_names: Vec<String> = dbs.iter().map(|d| {
+            let path = std::path::Path::new(d);
+            path.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| d.clone())
+        }).collect();
+
+        // 打印服务器信息面板（显示第一个数据库）
+        let primary_db = db_names.first().cloned().unwrap_or_else(|| "data.db".to_string());
+        banner::print_server_info(&host, port, &primary_db);
         banner::print_auth_status(api_token.is_some());
 
-        let state = AppState::new(&db_dir, &db_name, api_token)?;
+        // 多数据库信息
+        if db_names.len() > 1 {
+            println!("  Loaded {} databases:", db_names.len());
+            for (i, name) in db_names.iter().enumerate() {
+                println!("    [{:3}] {}", i + 1, name);
+            }
+            println!("  (use POST /v1/databases/switch to switch)");
+            println!();
+        }
+
+        // 如果启用了文件监听，显示通知
+        if watch {
+            println!("  File watching: ENABLED (auto-reload on file changes)");
+            println!();
+        }
+
+        // 使用多数据库初始化 AppState
+        let state = AppState::new_multi(&db_dir, &db_names, api_token)?;
+
+        // 启动文件监听（可选）
+        let _file_watcher = if watch {
+            let fw = state.start_file_watcher().ok();
+            if fw.is_some() {
+                info!("File watcher started for directory: {}", db_dir);
+            }
+            fw
+        } else {
+            None
+        };
+
         let app = build_routes(state);
 
         let listener = tokio::net::TcpListener::bind(&addr).await?;
         info!("RustMinidb v{} server starting on {}", rustminidb::version(), addr);
         info!("Database directory: {}", db_dir);
-        info!("Current database: {}", db_name);
+        info!("Databases loaded: {}", db_names.join(", "));
         info!("API endpoints:");
         info!("  GET  /          - Web Admin UI");
         info!("  POST /v1/query  - Execute SQL");
@@ -111,22 +150,81 @@ fn cmd_serve(host: String, port: u16, db: String, api_token: Option<String>) -> 
 
 /// 非 server feature 下的占位
 #[cfg(not(feature = "server"))]
-fn cmd_serve(_host: String, _port: u16, _db: String, _api_token: Option<String>) -> Result<()> {
+#[allow(unused_variables)]
+fn cmd_serve(
+    host: String,
+    port: u16,
+    dbs: Vec<String>,
+    db_dir: String,
+    watch: bool,
+    api_token: Option<String>,
+) -> Result<()> {
     eprintln!("错误: 'serve' 命令需要 'server' feature (默认已启用)");
     eprintln!("请使用默认 feature 重新编译: cargo build");
     std::process::exit(1);
 }
 
-/// 交互式 SQL Shell
-fn cmd_shell(db: String) -> Result<()> {
+/// 交互式 SQL Shell（支持多数据库）
+fn cmd_shell(dbs: Vec<String>, watch: bool) -> Result<()> {
     use rustminidb::monitor;
 
-    println!("RustMinidb Shell v{}", rustminidb::version());
+    let version = rustminidb::version();
+    println!("RustMinidb Shell v{}", version);
     println!("Enter SQL statements or '.help' for help");
+    if dbs.len() > 1 {
+        println!("Loaded {} databases: {}", dbs.len(), dbs.join(", "));
+        println!("Use '.use <db_name>' to switch between databases");
+    }
+    if watch {
+        println!("File watching: ENABLED (auto-reload on file changes)");
+    }
     println!();
 
-    let engine = Arc::new(RedbEngine::open(&db)?);
+    // 打开第一个数据库作为默认
+    let primary_db = dbs.first().cloned().unwrap_or_else(|| "data.db".to_string());
+    let engine = Arc::new(RedbEngine::open(&primary_db)?);
     let executor = Executor::new(engine.clone());
+
+    // 多数据库支持：存储所有已打开的数据库引擎
+    let mut db_map: std::collections::HashMap<String, (Arc<dyn StorageEngine>, Executor)> =
+        std::collections::HashMap::new();
+    db_map.insert(primary_db.clone(), (engine.clone() as Arc<dyn StorageEngine>, Executor::new(engine.clone())));
+
+    // 打开其他数据库
+    for db_name in dbs.iter().skip(1) {
+        if let Ok(eng) = RedbEngine::open(db_name) {
+            let shared: Arc<dyn StorageEngine> = Arc::new(eng);
+            let exec = Executor::new(shared.clone());
+            db_map.insert(db_name.clone(), (shared, exec));
+        }
+    }
+
+    let mut current_db_name = primary_db.clone();
+    let mut current_engine: Arc<dyn StorageEngine> = engine.clone();
+    let mut current_executor = executor;
+
+    // 文件监听（可选）
+    let _watcher = if watch {
+        let db_dir = std::path::Path::new(&primary_db)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| ".".to_string());
+
+        let mut fw = rustminidb::watcher::FileWatcher::new();
+        let cb: rustminidb::watcher::ChangeCallback = Arc::new(move |event| {
+            // 在 shell 中文件变化通知
+            match &event {
+                rustminidb::watcher::FileChangeEvent::DatabaseModified { db_name, .. } => {
+                    eprintln!("\n[File changed] {} — database modified externally", db_name);
+                }
+                _ => {}
+            }
+        });
+        let _ = fw.watch(&db_dir, cb);
+        Some(fw)
+    } else {
+        None
+    };
 
     // 简易交互式 shell（不依赖 rustyline，使用标准输入）
     use std::io::{self, BufRead, Write};
@@ -156,12 +254,12 @@ fn cmd_shell(db: String) -> Result<()> {
                     break;
                 }
                 ".tables" => {
-                    match engine.list_tables() {
+                    match current_engine.list_tables() {
                         Ok(tables) => {
                             if tables.is_empty() {
                                 println!("No tables found");
                             } else {
-                                println!("Tables:");
+                                println!("Tables in '{}':", current_db_name);
                                 for t in tables {
                                     println!("  {}", t);
                                 }
@@ -175,8 +273,10 @@ fn cmd_shell(db: String) -> Result<()> {
                 }
                 ".help" => {
                     println!("RustMinidb Shell Commands:");
-                    println!("  .tables      List all tables");
+                    println!("  .tables      List all tables in current database");
                     println!("  .schema      Show table schemas");
+                    println!("  .databases   List all loaded databases");
+                    println!("  .use <name>  Switch to another database");
                     println!("  .exit        Exit shell");
                     println!("  .quit        Exit shell");
                     println!("  .help        Show this help");
@@ -188,12 +288,47 @@ fn cmd_shell(db: String) -> Result<()> {
                 ".monitor" => {
                     monitor::print_metrics_summary();
                 }
+                ".databases" => {
+                    println!("Current database: {}", current_db_name);
+                    println!("Loaded databases:");
+                    for name in db_map.keys() {
+                        let marker = if *name == current_db_name { "* " } else { "  " };
+                        println!("  {}{}", marker, name);
+                    }
+                }
+                _ if line.starts_with(".use ") => {
+                    let target = line[5..].trim();
+                    if target.is_empty() {
+                        println!("Usage: .use <database_name>");
+                    } else if let Some((eng, exec)) = db_map.get(target) {
+                        current_db_name = target.to_string();
+                        current_engine = eng.clone();
+                        current_executor = exec.clone();
+                        println!("Switched to database: {}", target);
+                    } else {
+                        // 尝试从文件打开
+                        match RedbEngine::open(target) {
+                            Ok(eng) => {
+                                let shared: Arc<dyn StorageEngine> = Arc::new(eng);
+                                let exec = Executor::new(shared.clone());
+                                current_db_name = target.to_string();
+                                current_engine = shared.clone();
+                                current_executor = exec.clone();
+                                                            db_map.insert(target.to_string(), (shared, exec));
+                                println!("Opened and switched to database: {}", target);
+                            }
+                            Err(e) => {
+                                println!("Error: cannot open database '{}': {}", target, e);
+                            }
+                        }
+                    }
+                }
                 ".export" => {
                     // Shell 内快速导出
-                    let engine_ref = engine.clone() as rustminidb::storage::engine::SharedEngine;
+                    let engine_ref = current_engine.clone();
                     match rustminidb::migration::export_database_to_string(engine_ref) {
                         Ok(sql) => {
-                            println!("═══ Database Export ═══");
+                            println!("═══ Database Export ({}) ═══", current_db_name);
                             println!("{}", sql);
                         }
                         Err(e) => {
@@ -202,10 +337,10 @@ fn cmd_shell(db: String) -> Result<()> {
                     }
                 }
                 ".schema" => {
-                    match engine.list_tables() {
+                    match current_engine.list_tables() {
                         Ok(tables) => {
                             for t in tables {
-                                if let Ok(Some(schema)) = engine.get_schema(&t) {
+                                if let Ok(Some(schema)) = current_engine.get_schema(&t) {
                                     println!("CREATE TABLE {} (", schema.name);
                                     for col in &schema.columns {
                                         print!("  {} {}", col.name, col.col_type);
@@ -242,7 +377,7 @@ fn cmd_shell(db: String) -> Result<()> {
         // 执行 SQL
         let start = std::time::Instant::now();
         match SqlParser::parse(line) {
-            Ok(stmt) => match executor.execute(&stmt) {
+            Ok(stmt) => match current_executor.execute(&stmt) {
                 Ok(result) => {
                     let elapsed = start.elapsed().as_secs_f64() * 1000.0;
                     let elapsed_us = (elapsed * 1000.0) as u64;

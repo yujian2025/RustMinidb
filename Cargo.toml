@@ -1,6 +1,6 @@
 [package]
 name = "rustminidb"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 description = "A lightweight embedded database with native REST API"
 authors = ["RustMinidb Contributors"]
@@ -54,6 +54,9 @@ rustyline = { version = "15", optional = true }
 thiserror = "2"
 uuid = { version = "1", features = ["v4"] }
 hex = "0.4"
+
+# 文件监听（自动重载）
+notify = { version = "7", features = ["macos_kqueue"] }
 
 # 配置文件
 toml = "0.8"

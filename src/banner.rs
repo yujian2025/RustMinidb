@@ -1,11 +1,13 @@
-//! RustMinidb 启动欢迎画面（Banner / ASCII Logo）
+//! 启动横幅与视觉输出
 //!
-//! 提供增强版 ASCII 艺术字 Logo、系统信息面板、ANSI 彩色输出。
-//! 支持详细模式和简洁模式，自动检测终端颜色支持。
+//! 提供 ANSI 彩色启动横幅、Logo 以及服务器信息面板。
+//! 自动检测终端色彩支持并降级为纯文本。
 
 use std::time::Instant;
 
-// ── ANSI 颜色常量（仅在不支持颜色的终端自动降级） ──
+use std::io::IsTerminal;
+
+// ── ANSI Escape Codes ───────────────────────────────────
 
 const RESET: &str = "\x1b[0m";
 const BOLD: &str = "\x1b[1m";
@@ -15,99 +17,160 @@ const FG_CYAN: &str = "\x1b[36m";
 const FG_GREEN: &str = "\x1b[32m";
 const FG_YELLOW: &str = "\x1b[33m";
 const FG_MAGENTA: &str = "\x1b[35m";
-
-// 未使用的颜色常量仅保留用于扩展
-#[allow(dead_code)]
 const FG_WHITE: &str = "\x1b[37m";
-#[allow(dead_code)]
 const FG_BLUE: &str = "\x1b[34m";
-#[allow(dead_code)]
-const FG_RED: &str = "\x1b[31m";
+
+// ── 颜色探测 ────────────────────────────────────────────
 
 /// 检测终端是否支持 ANSI 颜色
 fn supports_color() -> bool {
-    // Windows 10+ 的现代终端支持 ANSI
-    if let Ok(term) = std::env::var("TERM") {
-        if term != "dumb" {
-            return true;
+    // 优先检查 NO_COLOR 环境变量
+    if std::env::var_os("NO_COLOR").is_some() {
+        return false;
+    }
+    // 检查 RUSTMINIDB_COLOR 环境变量，可强制开启/关闭
+    if let Ok(val) = std::env::var("RUSTMINIDB_COLOR") {
+        match val.as_str() {
+            "0" | "false" | "off" | "no" => return false,
+            "1" | "true" | "on" | "yes" => return true,
+            _ => {}
         }
     }
-    if let Ok(ci) = std::env::var("CI") {
-        if ci == "true" || ci == "1" {
-            return false;
-        }
-    }
-    // 检测 Windows 终端
+    // Windows: 检查终端类型
     #[cfg(windows)]
     {
-        if let Ok(ver) = std::env::var("WT_SESSION") {
-            return !ver.is_empty(); // Windows Terminal
+        // 检查是否支持 VT processing
+        if let Ok(output) = std::process::Command::new("cmd")
+            .args(["/c", "echo", "%TERM%"])
+            .output()
+        {
+            let term = String::from_utf8_lossy(&output.stdout);
+            if term.trim().contains("xterm") || term.trim().contains("cygwin") {
+                return true;
+            }
         }
-        return true; // 默认开启
+        // 默认 Windows 10+ 新终端都支持
+        return true;
     }
     #[cfg(not(windows))]
-    true
+    {
+        std::env::var("TERM")
+            .ok()
+            .map(|t| t != "dumb")
+            .unwrap_or(false)
+    }
 }
 
-/// 是否为非交互模式（管道重定向等）
+/// 检查输出是否被重定向到管道/文件
 fn is_pipe_output() -> bool {
-    use std::io::IsTerminal;
-    !std::io::stdout().is_terminal()
+    std::io::stdout().is_terminal()
 }
 
-/// 带颜色的文本包装（自动降级）
-#[allow(unused_macros)]
-macro_rules! c {
-    ($color:expr, $text:expr) => {
-        if crate::banner::use_color() {
-            concat!($color, $text, "\x1b[0m")
-        } else {
-            $text
-        }
-    };
-}
-
-/// 当前是否应使用颜色输出
+/// 外部模块可调用，判断是否应该使用颜色
 pub fn use_color() -> bool {
-    supports_color() && !is_pipe_output()
+    supports_color() && is_pipe_output()
 }
 
-// ── 增强版 ASCII Logo ──
+// ── Logo 定义 ───────────────────────────────────────────
 
-/// 数据库主题的 ASCII 艺术字 Logo
+/// 大号 "R" 科技感图标（标志性主视觉）
+const LOGO_M_ART: &str = r#"
+    ██████╗
+    ██╔══██╗
+    ██████╔╝
+    ██╔══██╗
+    ██║  ██║
+    ╚═╝  ╚═╝
+"#;
+
+/// 完整 Logo 面板 — 现代科技感 "RustMinidb" 块状字标
 const LOGO_ART: &str = r#"
-    ╔══════════════════════════════════════╗
-    ║   ██████   ██    ██  ███████  ╔══════╣
-    ║   ██   ██  ██    ██  ██       ║ SQL ║
-    ║   ██████   ██    ██  ███████  ║ DB  ║
-    ║   ██   ██   ██  ██   ██       ╚══════╣
-    ║   ██   ██    ████    ███████          ║
-    ╚════════════════════════════════════════╝
+  ╔══════════════════════════════════════════════════════╗
+  ║                                                      ║
+  ║    ██████╗ ██╗   ██╗███████╗████████╗               ║
+  ║    ██╔══██╗██║   ██║██╔════╝╚══██╔══╝               ║
+  ║    ██████╔╝██║   ██║███████╗   ██║                  ║
+  ║    ██╔══██╗██║   ██║╚════██║   ██║                  ║
+  ║    ██║  ██║╚██████╔╝███████║   ██║                  ║
+  ║    ╚═╝  ╚═╝ ╚═════╝ ╚══════╝   ╚═╝                  ║
+  ║                                                      ║
+  ║    ███╗   ███╗██╗███╗   ██╗██╗██████╗ ██████╗       ║
+  ║    ████╗ ████║██║████╗  ██║██║██╔══██╗██╔══██╗      ║
+  ║    ██╔████╔██║██║██╔██╗ ██║██║██████╔╝██████╔╝      ║
+  ║    ██║╚██╔╝██║██║██║╚██╗██║██║██╔══██╗██╔══██╗      ║
+  ║    ██║ ╚═╝ ██║██║██║ ╚████║██║██████╔╝██████╔╝      ║
+  ║    ╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═╝╚═════╝ ╚═════╝       ║
+  ║                                                      ║
+  ╚══════════════════════════════════════════════════════╝
 "#;
 
-/// 紧凑 ASCII 艺术字 Logo（小屏友好）
+/// 紧凑版 Logo（终端宽度有限时使用）
 const LOGO_COMPACT: &str = r#"
-  ___  __ __ ___  _   _ ___ ___  ___
- | _ \/ _/ `_ \ / \ |_ _| _ \ _ \/ __|
- |   / _ \ (_) | | ' \| ||   / _ /\__ \
- |_|_\_|__\__,_|_|_||_|_|_|_\_|_| |___/
+   _  _  __  __  _  _  ___  _  _  ___
+  | \| |/ _\ \/ / | \| | _ \| \| | _ \
+  | .` | (_ >  <  | .` |   /| .` |  _/
+  |_|\_|\___/_/\_\|_|\_|_|_\|_|\_|_|
 "#;
 
-/// 生成 ANSI 彩色版本的 Logo
-fn colored_logo() -> String {
+/// 生成彩色渐变的 "R" 科技图标
+fn colored_m_logo() -> String {
     if !use_color() {
-        return LOGO_ART.to_string();
+        return LOGO_M_ART.to_string();
     }
 
-    // 为 ASCII Logo 添加渐变色效果
-    let lines: Vec<&str> = LOGO_ART.lines().collect();
-    let colors = [FG_CYAN, FG_GREEN, FG_YELLOW, FG_MAGENTA, FG_CYAN];
+    let lines: Vec<&str> = LOGO_M_ART.lines().collect();
+    // 科技感渐变色：深蓝 → 青 → 紫
+    let colors = [FG_BLUE, FG_CYAN, FG_MAGENTA, FG_CYAN, FG_BLUE, FG_MAGENTA];
     let mut out = String::new();
     for (i, line) in lines.iter().enumerate() {
         let color = colors[i.min(colors.len() - 1)];
         out.push_str(&format!("{}{}{}\n", color, line, RESET));
     }
     out
+}
+
+/// 生成彩色渐变的完整 Logo（科技感配色）
+fn colored_logo() -> String {
+    if !use_color() {
+        return LOGO_ART.to_string();
+    }
+
+    let lines: Vec<&str> = LOGO_ART.lines().collect();
+    // 科技感渐变色：边框深蓝 → Rust 段青绿 → 分隔冰蓝 → Minidb 段紫青
+    let colors = [
+        FG_CYAN,    // 1. 顶部边框
+        FG_CYAN,    // 2. 空行
+        FG_CYAN,    // 3. Rust: R
+        FG_CYAN,    // 4. Rust: u
+        FG_BLUE,    // 5. Rust: s
+        FG_BLUE,    // 6. Rust: t
+        FG_BLUE,    // 7. Rust end
+        FG_MAGENTA, // 8. Rust bottom
+        FG_CYAN,    // 9. 分隔行
+        FG_MAGENTA, // 10. Minidb: M
+        FG_MAGENTA, // 11. Minidb: i
+        FG_BLUE,    // 12. Minidb: n
+        FG_BLUE,    // 13. Minidb: i
+        FG_CYAN,    // 14. Minidb: d
+        FG_CYAN,    // 15. Minidb: b
+        FG_CYAN,    // 16. 空行
+        FG_CYAN,    // 17. 底部边框
+    ];
+    let mut out = String::new();
+    for (i, line) in lines.iter().enumerate() {
+        let color = colors[i.min(colors.len() - 1)];
+        out.push_str(&format!("{}{}{}\n", color, line, RESET));
+    }
+    out
+}
+
+/// 只打印大号 "M" 图标（极简模式）
+pub fn print_m_icon() {
+    if use_color() {
+        print!("{}", colored_m_logo());
+    } else {
+        print!("{}", LOGO_M_ART);
+    }
 }
 
 /// 打印完整的启动欢迎画面（详细模式 - 默认）
@@ -126,11 +189,11 @@ pub fn print_info_line() {
     let version = crate::version();
     if use_color() {
         println!(
-            "{}RustMinidb v{}{} — Embedded Relational Database (redb, ACID)",
-            FG_GREEN, version, RESET
+            "{}██╗  ██╗ {}RustMinidb v{}{} — Embedded Relational Database (redb, ACID)",
+            FG_MAGENTA, FG_GREEN, version, RESET
         );
     } else {
-        println!("RustMinidb v{} — Embedded Relational Database (redb, ACID)", version);
+        println!("M  RustMinidb v{} — Embedded Relational Database (redb, ACID)", version);
     }
 }
 
@@ -176,15 +239,15 @@ fn logo_with_info(version: &str, detailed: bool) -> String {
 
     let info_line = if use_color() {
         format!(
-            " {FG_GREEN}RustMinidb v{version}{RESET}{DIM} — Embedded Relational Database{RESET}\n \
-             {DIM}Homepage: https://rustminidb.dev   License: BSL-1.1{RESET}\n \
-             {DIM}Storage: redb (single-file, ACID, MVCC){RESET}",
+            " {FG_MAGENTA}◈{RESET}{BOLD} RustMinidb v{version}{RESET}{DIM} — Embedded Relational Database{RESET}\n \
+             {DIM}  Homepage: https://rustminidb.dev   License: BSL-1.1{RESET}\n \
+             {DIM}  Storage: redb (single-file, ACID, MVCC){RESET}",
         )
     } else {
         format!(
-            " RustMinidb v{} — Embedded Relational Database\n \
-             Homepage: https://rustminidb.dev   License: BSL-1.1\n \
-             Storage: redb (single-file, ACID, MVCC)",
+            " ◈ RustMinidb v{} — Embedded Relational Database\n \
+               Homepage: https://rustminidb.dev   License: BSL-1.1\n \
+               Storage: redb (single-file, ACID, MVCC)",
             version
         )
     };
@@ -195,30 +258,19 @@ fn logo_with_info(version: &str, detailed: bool) -> String {
 fn system_info_panel(version: &str, features: &[&str]) -> String {
     let mut panel = String::new();
     let border = if use_color() { format!("{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", FG_CYAN, RESET) } else { "━".repeat(48) };
-
     panel.push_str(&format!("  {}\n", border));
     panel.push_str(&format!(
-        "  {}System Information{}\n",
-        if use_color() { BOLD } else { "" },
+        "   {}System Information{}\n",
+        if use_color() { format!("{}{}", BOLD, FG_YELLOW) } else { "".to_string() },
         RESET
     ));
     panel.push_str(&format!("  {}\n", border));
-
-    panel.push_str(&format!("    Version    : {}\n", version));
-    panel.push_str(&format!("    Engine     : redb (single-file ACID MVCC)\n"));
-
-    let feature_str = if features.is_empty() {
-        "default".to_string()
-    } else {
-        features.join(", ")
-    };
-    panel.push_str(&format!("    Features   : {}\n", feature_str));
-
-    panel.push_str(&format!(
-        "  {}\n",
-        if use_color() { format!("{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", FG_CYAN, RESET) } else { "━".repeat(48) }
-    ));
-
+    panel.push_str(&format!("    Version         :  {}\n", version));
+    panel.push_str(&format!("    Storage Engine  :  redb (single-file, ACID)\n"));
+    panel.push_str(&format!("    Platform        :  {}\n", std::env::consts::OS));
+    panel.push_str(&format!("    Architecture    :  {}\n", std::env::consts::ARCH));
+    panel.push_str(&format!("    Features        :  {}\n", features.join(", ")));
+    panel.push_str(&format!("  {}\n", border));
     panel
 }
 
@@ -298,88 +350,94 @@ pub fn print_startup_complete(addr: Option<&str>) {
 
 /// 打印运行时的 HTTP 服务信息面板
 pub fn print_server_info(host: &str, port: u16, db_name: &str) {
+    // 先打印大号 "M" 图标
+    let version = crate::version();
     println!();
     if use_color() {
         println!(
             "  {}╔══════════════════════════════════════════════════╗{}",
-            FG_CYAN, RESET
+            FG_MAGENTA, RESET
         );
         println!(
-            "  {}║{}            {}R u s t M i n i d b{}              {}║{}",
-            FG_CYAN, RESET,
-            BOLD, RESET,
-            FG_CYAN, RESET
+            "  {}║{}              {}{}M{} DB Server{}               {}║{}",
+            FG_MAGENTA, RESET,
+            BOLD, FG_CYAN, RESET, BOLD, FG_MAGENTA, RESET
         );
         println!(
-            "  {}║{}     Lightweight Embedded Database with REST    {}║{}",
-            FG_CYAN, RESET, FG_CYAN, RESET
+            "  {}║{}     RustMinidb — Lightweight Embedded DB      {}║{}",
+            FG_MAGENTA, RESET, FG_MAGENTA, RESET
         );
         println!(
             "  {}╠══════════════════════════════════════════════════╣{}",
-            FG_CYAN, RESET
+            FG_MAGENTA, RESET
         );
         println!(
             "  {}║{}  Version:  {:<38} {}║{}",
-            FG_CYAN, RESET,
-            crate::version(),
-            FG_CYAN, RESET
+            FG_MAGENTA, RESET,
+            version,
+            FG_MAGENTA, RESET
         );
         println!(
             "  {}║{}  Server:   http://{}:{:<29} {}║{}",
-            FG_CYAN, RESET, host, port, FG_CYAN, RESET
+            FG_MAGENTA, RESET, host, port, FG_MAGENTA, RESET
         );
         println!(
             "  {}║{}  Database: {:<39} {}║{}",
-            FG_CYAN, RESET, db_name, FG_CYAN, RESET
+            FG_MAGENTA, RESET, db_name, FG_MAGENTA, RESET
+        );
+        println!(
+            "  {}║{}  Storage:  redb (ACID, single-file)           {}║{}",
+            FG_MAGENTA, RESET, FG_MAGENTA, RESET
         );
         println!(
             "  {}╠══════════════════════════════════════════════════╣{}",
-            FG_CYAN, RESET
+            FG_MAGENTA, RESET
         );
         println!(
             "  {}║{}  API Endpoints:                                  {}║{}",
-            FG_CYAN, RESET, FG_CYAN, RESET
+            FG_MAGENTA, RESET, FG_MAGENTA, RESET
         );
         println!(
             "  {}║{}    GET  /              - Web Admin UI            {}║{}",
-            FG_CYAN, RESET, FG_CYAN, RESET
+            FG_MAGENTA, RESET, FG_MAGENTA, RESET
         );
         println!(
             "  {}║{}    POST /v1/query      - Execute SQL             {}║{}",
-            FG_CYAN, RESET, FG_CYAN, RESET
+            FG_MAGENTA, RESET, FG_MAGENTA, RESET
         );
         println!(
             "  {}║{}    GET  /v1/health     - Health check            {}║{}",
-            FG_CYAN, RESET, FG_CYAN, RESET
+            FG_MAGENTA, RESET, FG_MAGENTA, RESET
         );
         println!(
             "  {}║{}    GET  /v1/tables     - List tables             {}║{}",
-            FG_CYAN, RESET, FG_CYAN, RESET
+            FG_MAGENTA, RESET, FG_MAGENTA, RESET
         );
         println!(
             "  {}║{}    GET  /v1/schema/{{t}} - Table schema          {}║{}",
-            FG_CYAN, RESET, FG_CYAN, RESET
+            FG_MAGENTA, RESET, FG_MAGENTA, RESET
         );
         println!(
             "  {}║{}    GET  /v1/export     - Export SQL              {}║{}",
-            FG_CYAN, RESET, FG_CYAN, RESET
+            FG_MAGENTA, RESET, FG_MAGENTA, RESET
         );
         println!(
             "  {}║{}    GET  /v1/metrics    - Server metrics          {}║{}",
-            FG_CYAN, RESET, FG_CYAN, RESET
+            FG_MAGENTA, RESET, FG_MAGENTA, RESET
         );
         println!(
             "  {}╚══════════════════════════════════════════════════╝{}",
-            FG_CYAN, RESET
+            FG_MAGENTA, RESET
         );
     } else {
         println!("  ╔══════════════════════════════════════════════════╗");
-        println!("  ║              R u s t M i n i d b                ║");
-        println!("  ║     Lightweight Embedded Database with REST     ║");
+        println!("  ║                M DB Server                      ║");
+        println!("  ║     RustMinidb — Lightweight Embedded DB        ║");
         println!("  ╠══════════════════════════════════════════════════╣");
-        println!("  ║  Version:  {:<38}║", crate::version());
+        println!("  ║  Version:  {:<38}║", version);
         println!("  ║  Server:   http://{}:{:<29}║", host, port);
         println!("  ║  Database: {:<39}║", db_name);
+        println!("  ║  Storage:  redb (ACID, single-file)             ║");
         println!("  ╠══════════════════════════════════════════════════╣");
         println!("  ║  API Endpoints:                                  ║");
         println!("  ║    GET  /              - Web Admin UI            ║");
@@ -472,5 +530,10 @@ mod tests {
     fn test_startup_elapsed() {
         record_start_time();
         assert!(startup_elapsed_ms() >= 0);
+    }
+
+    #[test]
+    fn test_print_m_icon() {
+        print_m_icon();
     }
 }

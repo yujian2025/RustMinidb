@@ -31,6 +31,7 @@ pub enum ExecuteResult {
 }
 
 /// SQL 执行器
+#[derive(Clone)]
 pub struct Executor {
     engine: SharedEngine,
 }

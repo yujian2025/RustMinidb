@@ -27,6 +27,7 @@ pub mod monitor;
 pub mod server;
 pub mod sql;
 pub mod storage;
+pub mod watcher;
 
 use std::collections::HashMap;
 use std::path::Path;

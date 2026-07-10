@@ -1,7 +1,7 @@
 //! CLI 命令定义
 //!
 //! 使用 clap 定义子命令：
-//! - serve: 启动 HTTP 服务器
+//! - serve: 启动 HTTP 服务器（支持多数据库）
 //! - shell: 交互式 SQL 控制台
 //! - exec: 执行单条 SQL
 //! - init: 初始化数据库
@@ -12,7 +12,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(name = "rustminidb")]
 #[command(about = "A lightweight embedded database with native REST API")]
-#[command(version = "0.1.1")]
+#[command(version = "0.2.0")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -20,7 +20,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// 启动数据库 HTTP 服务器
+    /// 启动数据库 HTTP 服务器（支持多数据库同时加载）
     Serve {
         /// 监听地址
         #[arg(long, default_value = "0.0.0.0")]
@@ -30,14 +30,22 @@ pub enum Commands {
         #[arg(long, default_value_t = 8080)]
         port: u16,
 
-        /// 数据库文件路径
+        /// 数据库文件路径（可指定多个，实现多数据库同时打开）
         #[arg(long, default_value = "data.db")]
-        db: String,
+        db: Vec<String>,
+
+        /// 数据库文件所在目录
+        #[arg(long, default_value = ".")]
+        db_dir: String,
 
         /// 最大连接数
         #[arg(long, default_value_t = 100)]
         #[allow(dead_code)]
         max_connections: u32,
+
+        /// 启用文件监听自动重载（当数据库文件变化时自动刷新）
+        #[arg(long)]
+        watch: bool,
 
         /// API 访问令牌（Bearer Token），为空则不启用认证。
         /// 也可通过环境变量 RUSTMINIDB_API_TOKEN 设置。
@@ -47,9 +55,13 @@ pub enum Commands {
 
     /// 交互式 SQL Shell（类似 sqlite3）
     Shell {
-        /// 数据库文件路径
+        /// 数据库文件路径（可指定多个，用 .use 命令切换）
         #[arg(long, default_value = "data.db")]
-        db: String,
+        db: Vec<String>,
+
+        /// 启用文件监听自动重载
+        #[arg(long)]
+        watch: bool,
     },
 
     /// 执行单条 SQL 语句

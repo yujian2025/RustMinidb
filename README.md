@@ -1,8 +1,8 @@
 # RustMinidb
 
-**轻量级嵌入式关系型数据库 · 原生 REST API · 单文件存储**
+**轻量级嵌入式关系型数据库 · 原生 REST API · 单文件存储 · 多数据库支持**
 
-RustMinidb 是一个使用 Rust 编写的轻量级嵌入式关系型数据库，基于 [redb](https://github.com/cberner/redb) 存储引擎（ACID、MVCC、单文件）。原生内置 HTTP REST API 服务器，适合物联网、边缘计算和嵌入式场景。
+RustMinidb 是一个使用 Rust 编写的轻量级嵌入式关系型数据库，基于 [redb](https://github.com/cberner/redb) 存储引擎（ACID、MVCC、单文件）。原生内置 HTTP REST API 服务器，支持**多数据库同时打开**、**文件监听自动重载**，适合物联网、边缘计算和嵌入式场景。
 
 ---
 
@@ -18,6 +18,15 @@ RustMinidb 是一个使用 Rust 编写的轻量级嵌入式关系型数据库，
 | **MVCC** | 多版本并发控制，读写互不阻塞 |
 | **单文件存储** | 整个数据库存储在一个 `.db` 文件中，零配置 |
 | **多数据类型** | INTEGER、FLOAT、TEXT、BLOB、BOOLEAN、TIMESTAMP |
+
+### 🆕 v0.2.0 新特性
+
+| 特性 | 说明 |
+|---|---|
+| **📁 多数据库支持** | 同时打开多个数据库文件，API 和 Shell 中自由切换 |
+| **👀 文件监听自动重载** | 监听 `.db` 文件变化，自动刷新数据库连接（`--watch`） |
+| **🎨 全新 Logo** | 科技感 "R" 图标 + "RustMinidb" 块状字标启动画面 |
+| **🔀 Shell 多库切换** | `.use <db_name>` 命令切换数据库，`.databases` 列出所有加载库 |
 
 ### 🌐 REST API 服务器
 
@@ -37,15 +46,18 @@ RustMinidb 是一个使用 Rust 编写的轻量级嵌入式关系型数据库，
 | `/v1/schema/{table}` | GET | 查看指定表结构 |
 | `/v1/export` | GET | 导出数据库为 SQL |
 | `/v1/metrics` | GET | 运行时监控指标 |
-| `/v1/databases` | GET | 多数据库管理 |
+| `/v1/databases` | GET | 列出所有数据库（含多库管理） |
+| `/v1/databases/switch` | POST | 切换当前数据库 |
+| `/v1/databases/create` | POST | 创建新数据库 |
+| `/v1/databases/delete` | POST | 删除数据库 |
 | `/v1/import` | POST | 数据导入 |
 
 ### 🛠️ 实用工具
 
-- **交互式 Shell** — 类似 `sqlite3` 的命令行控制台
+- **交互式 Shell** — 类似 `sqlite3` 的命令行控制台，支持多数据库切换
 - **SQL 导出迁移** — 支持 Standard / MySQL / PostgreSQL / SQLite 四种方言
 - **监控仪表盘** — 运行时 QPS、延迟、连接数等指标
-- **彩色 Banner** — 增强型启动欢迎画面（ANSI 彩色 Logo）
+- **彩色 Banner** — 增强型启动欢迎画面（ANSI 彩色 "R" Logo）
 - **请求追踪** — UUID 级请求链路追踪
 - **🔒 API 认证** — Bearer Token 保护全部数据接口
 
@@ -82,7 +94,7 @@ cargo install rustminidb
 
 ```toml
 [dependencies]
-rustminidb = "0.1"
+rustminidb = "0.2"
 ```
 
 ### 基本使用
@@ -111,6 +123,22 @@ rustminidb serve --host 0.0.0.0 --port 8080 --db mydata.db --api-token "your-sec
 set RUSTMINIDB_API_TOKEN=your-secret-token
 rustminidb serve --host 0.0.0.0 --port 8080 --db mydata.db
 
+# ── v0.2.0 新特性 ──────────────────────────────────
+
+# 多数据库同时打开（支持任意数量）
+rustminidb serve --db data1.db --db data2.db --db data3.db
+
+# 多数据库 Shell
+rustminidb shell --db orders.db --db inventory.db
+
+# 文件监听自动重载（数据库文件变化时自动刷新）
+rustminidb serve --db mydata.db --watch
+
+# 多数据库 + 文件监听组合
+rustminidb serve --db data1.db --db data2.db --db data3.db --watch
+
+# ──────────────────────────────────────────────────
+
 # 导出数据库为 SQL
 rustminidb export --db mydata.db --output backup.sql
 
@@ -126,6 +154,8 @@ rustminidb version
 |---|---|
 | `.tables` | 列出所有表 |
 | `.schema` | 查看所有表结构 |
+| `.databases` | 列出所有已加载的数据库（v0.2.0） |
+| `.use <name>` | 切换到指定数据库（v0.2.0） |
 | `.monitor` | 显示运行时指标 |
 | `.export` | 导出整个数据库为 SQL |
 | `.exit` / `.quit` | 退出 Shell |
@@ -151,6 +181,15 @@ curl -H "Authorization: Bearer my-secret-token" http://localhost:8080/v1/metrics
 
 # 导出数据库（需 Token）
 curl -H "Authorization: Bearer my-secret-token" http://localhost:8080/v1/export
+
+# 列出所有数据库（需 Token）
+curl -H "Authorization: Bearer my-secret-token" http://localhost:8080/v1/databases
+
+# 切换数据库（需 Token）
+curl -X POST http://localhost:8080/v1/databases/switch \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer my-secret-token" \
+  -d '{"name": "data2.db"}'
 ```
 
 #### 🔹 嵌入式 Rust 库

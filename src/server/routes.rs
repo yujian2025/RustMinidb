@@ -1,6 +1,7 @@
 //! API 路由定义
 
 use axum::{
+    extract::State,
     middleware,
     response::Html,
     routing::{get, post},
@@ -15,9 +16,11 @@ use super::handlers;
 /// 管理页面 HTML（编译时嵌入）
 const ADMIN_HTML: &str = include_str!("admin.html");
 
-/// 服务管理页面
-async fn admin_page() -> Html<&'static str> {
-    Html(ADMIN_HTML)
+/// 服务管理页面（运行时注入版本号）
+async fn admin_page(State(_state): State<AppState>) -> Html<String> {
+    let version = crate::version();
+    let html = ADMIN_HTML.replace("{{VERSION}}", &format!("v{}", version));
+    Html(html)
 }
 
 /// 构建所有 API 路由
