@@ -233,10 +233,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
           <div style="display:flex;flex-wrap:wrap;gap:6px;">
             <button class="btn btn-sm" onclick="setApiTest('POST','/v1/query',{sql:'SELECT * FROM sensors LIMIT 5'})" style="background:#fff3e0;color:#e65100;border:1px solid #ffe0b2;font-weight:600;">📝 SQL 查询</button>
             <button class="btn btn-sm" onclick="setApiTest('POST','/v1/query',{sql:'CREATE TABLE t (id INT PRIMARY KEY, v TEXT)'})" style="background:#fff3e0;color:#e65100;border:1px solid #ffe0b2;font-weight:600;">📝 建表</button>
-            <button class="btn btn-sm" onclick="setApiTest('POST','/v1/query',{sql:'INSERT INTO t VALUES (1,' + "'hello')" + '})" style="background:#fff3e0;color:#e65100;border:1px solid #ffe0b2;font-weight:600;">📝 插入数据</button>
-            <button class="btn btn-sm" onclick="setApiTest('POST','/v1/import',{table:'users',data:[{id:1,name:'Alice',age:30},{id:2,name:'Bob',age:25}]})" style="background:#fff3e0;color:#e65100;border:1px solid #ffe0b2;font-weight:600;">📥 数据导入</button>
-            <button class="btn btn-sm" onclick="setApiTest('POST','/v1/databases/create',{name:'new_db'})" style="background:#fff3e0;color:#e65100;border:1px solid #ffe0b2;font-weight:600;">➕ 创建数据库</button>
-            <button class="btn btn-sm" onclick="setApiTest('POST','/v1/databases/switch',{name:'data.db',create:false})" style="background:#fff3e0;color:#e65100;border:1px solid #ffe0b2;font-weight:600;">🔀 切换数据库</button>
+            <button class="btn btn-sm" onclick="apiPreset('insert')" style="background:#fff3e0;color:#e65100;border:1px solid #ffe0b2;font-weight:600;">📝 插入数据</button>
+            <button class="btn btn-sm" onclick="apiPreset('import')" style="background:#fff3e0;color:#e65100;border:1px solid #ffe0b2;font-weight:600;">📥 数据导入</button>
+            <button class="btn btn-sm" onclick="apiPreset('createDb')" style="background:#fff3e0;color:#e65100;border:1px solid #ffe0b2;font-weight:600;">➕ 创建数据库</button>
+            <button class="btn btn-sm" onclick="apiPreset('switchDb')" style="background:#fff3e0;color:#e65100;border:1px solid #ffe0b2;font-weight:600;">🔀 切换数据库</button>
           </div>
         </div>
         <div id="apiTestResult" style="margin-top:8px;display:none;">
@@ -508,6 +508,18 @@ async function executeApiTest() {
     timeBadge.textContent = '耗时: ' + elapsed + 'ms';
     resultBody.textContent = '❌ 请求失败: ' + e.message;
   }
+}
+
+/// 预设 API 请求（避免 HTML 属性引号冲突）
+function apiPreset(name) {
+  const presets = {
+    insert: { method: 'POST', path: '/v1/query', body: {sql: "INSERT INTO t VALUES (1, 'hello')"} },
+    createDb: { method: 'POST', path: '/v1/databases/create', body: {name: 'new_db'} },
+    switchDb: { method: 'POST', path: '/v1/databases/switch', body: {name: 'data.db', create: false} },
+    import: { method: 'POST', path: '/v1/import', body: {table: 'users', data: [{id:1, name:'Alice', age:30}, {id:2, name:'Bob', age:25}]} },
+  };
+  const p = presets[name];
+  if (p) setApiTest(p.method, p.path, p.body);
 }
 
 /// 清除 API 测试结果
