@@ -14,7 +14,6 @@ categories = ["database-implementations", "embedded"]
 
 [package.metadata.docs.rs]
 all-features = true
-default-target = "x86_64-pc-windows-msvc"
 
 [features]
 default = ["server"]
