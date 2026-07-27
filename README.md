@@ -1,8 +1,8 @@
 # RustMinidb
 
-**轻量级嵌入式关系型数据库 · 原生 REST API · 单文件存储 · 多数据库支持**
+**轻量级嵌入式关系型数据库 · 原生 REST API · 单文件存储 · 完整 SQL · 二级索引**
 
-RustMinidb 是一个使用 Rust 编写的轻量级嵌入式关系型数据库，基于 [redb](https://github.com/cberner/redb) 存储引擎（ACID、MVCC、单文件）。原生内置 HTTP REST API 服务器，支持**多数据库同时打开**、**文件监听自动重载**，适合物联网、边缘计算和嵌入式场景。
+RustMinidb 是一个使用 Rust 编写的轻量级嵌入式关系型数据库，基于 [redb](https://github.com/cberner/redb) 存储引擎（ACID、MVCC、单文件）。原生内置 HTTP REST API 服务器，支持**聚合查询、二级索引、完整 WHERE 子句、UPSERT、多数据库同时打开**，适合物联网、边缘计算和嵌入式场景。
 
 ---
 
@@ -13,20 +13,29 @@ RustMinidb 是一个使用 Rust 编写的轻量级嵌入式关系型数据库，
 | 特性 | 说明 |
 |---|---|
 | **嵌入式** | 无需独立服务进程，可作为 Rust 库直接嵌入你的程序 |
-| **SQL 支持** | 标准 SQL 语法（CREATE / INSERT / SELECT / UPDATE / DELETE / DROP） |
+| **SQL 支持** | 标准 SQL 语法（CREATE / INSERT / SELECT / UPDATE / DELETE / DROP）|
+| **聚合查询** | COUNT / SUM / AVG / MIN / MAX + GROUP BY / HAVING |
+| **二级索引** | CREATE / DROP INDEX，自动维护，Planner 自动索引选择 |
+| **完整 WHERE** | `LIKE` / `IN` / `IS NULL` / `BETWEEN` / `=` / `!=` / `<` / `>` / `AND` / `OR` |
+| **UPSERT** | `ON CONFLICT DO NOTHING / UPDATE` 去重写入 |
+| **ALTER TABLE** | `ADD COLUMN` / `DROP COLUMN` 表结构变更 |
+| **AUTO_INCREMENT** | 自增 ID 自动分配 |
 | **ACID 事务** | 基于 redb 引擎，支持原子性、一致性、隔离性、持久性 |
 | **MVCC** | 多版本并发控制，读写互不阻塞 |
 | **单文件存储** | 整个数据库存储在一个 `.db` 文件中，零配置 |
 | **多数据类型** | INTEGER、FLOAT、TEXT、BLOB、BOOLEAN、TIMESTAMP |
 
-### 🆕 v0.2.0 新特性
+### 🆕 v0.3.0 新特性
 
 | 特性 | 说明 |
 |---|---|
-| **📁 多数据库支持** | 同时打开多个数据库文件，API 和 Shell 中自由切换 |
-| **👀 文件监听自动重载** | 监听 `.db` 文件变化，自动刷新数据库连接（`--watch`） |
-| **🎨 全新 Logo** | 科技感 "R" 图标 + "RustMinidb" 块状字标启动画面 |
-| **🔀 Shell 多库切换** | `.use <db_name>` 命令切换数据库，`.databases` 列出所有加载库 |
+| **📊 聚合函数** | COUNT/SUM/AVG/MIN/MAX + GROUP BY/HAVING，无需写后端代码即可统计分析 |
+| **🔍 二级索引** | CREATE / DROP INDEX，非主键字段快速查询，写入时自动维护 |
+| **🎯 完整 WHERE** | LIKE/ILIKE、IN/NOT IN、IS NULL/NOT NULL、BETWEEN |
+| **📝 UPSERT** | ON CONFLICT DO NOTHING / DO UPDATE，IoT 数据去重写入的标准答案 |
+| **🏗️ ALTER TABLE** | ADD COLUMN / DROP COLUMN，生产环境加字段不再需要删表重建 |
+| **⚡ AUTO_INCREMENT** | 自增 ID 自动分配，传感器批量写入零操心 |
+| **🔀 多列 ORDER BY** | `ORDER BY col1 ASC, col2 DESC` 复合排序 |
 
 ### 🌐 REST API 服务器
 
