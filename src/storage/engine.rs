@@ -46,6 +46,26 @@ pub trait StorageEngine: Send + Sync {
 
     /// 更新表模式（不影响已有数据）
     fn update_schema(&self, schema: &TableSchema) -> Result<()>;
+
+    // ── 索引管理 ──
+
+    /// 创建索引
+    fn create_index(&self, index: &super::schema::IndexDef) -> Result<()>;
+
+    /// 删除索引
+    fn drop_index(&self, table: &str, index_name: &str) -> Result<()>;
+
+    /// 列出表上的所有索引
+    fn list_indexes(&self, table: &str) -> Result<Vec<super::schema::IndexDef>>;
+
+    /// 插入索引条目（写入时自动维护）
+    fn insert_index_entry(&self, index: &super::schema::IndexDef, key: &[u8], pk: &[u8]) -> Result<()>;
+
+    /// 删除索引条目
+    fn delete_index_entry(&self, index: &super::schema::IndexDef, key: &[u8], pk: &[u8]) -> Result<()>;
+
+    /// 按索引扫描（等值查询）
+    fn scan_index_eq(&self, index: &super::schema::IndexDef, key: &[u8]) -> Result<Vec<Vec<u8>>>;
 }
 
 /// 线程安全共享的存储引擎

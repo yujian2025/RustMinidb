@@ -80,3 +80,23 @@ pub fn pk_value<'a>(row: &'a Row, schema: &'a TableSchema) -> Option<&'a Value> 
     let idx = schema.pk_index()?;
     Some(&row.values[idx])
 }
+
+/// 索引定义
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IndexDef {
+    /// 索引名
+    pub name: String,
+    /// 所属表名
+    pub table_name: String,
+    /// 索引列名列表
+    pub columns: Vec<String>,
+    /// 是否唯一索引
+    pub unique: bool,
+}
+
+impl IndexDef {
+    /// 索引在 redb 中的内部表名
+    pub fn internal_table_name(&self) -> String {
+        format!("__idx__{}__{}", self.table_name, self.name)
+    }
+}

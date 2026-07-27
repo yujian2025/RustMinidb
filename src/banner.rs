@@ -17,6 +17,7 @@ const FG_CYAN: &str = "\x1b[36m";
 const FG_GREEN: &str = "\x1b[32m";
 const FG_YELLOW: &str = "\x1b[33m";
 const FG_MAGENTA: &str = "\x1b[35m";
+#[allow(dead_code)]
 const FG_WHITE: &str = "\x1b[37m";
 const FG_BLUE: &str = "\x1b[34m";
 

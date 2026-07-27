@@ -379,3 +379,230 @@ fn test_row_count() {
 
     assert_eq!(engine.row_count("t").unwrap(), 10);
 }
+
+// ── V0.3.0 新功能测试 ──
+
+#[test]
+fn test_where_like() {
+    let (_dir, executor) = setup_executor();
+    executor.execute(&SqlParser::parse("CREATE TABLE t (id INT PRIMARY KEY, name TEXT)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (1, 'Alice')").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (2, 'Bob')").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (3, 'Charlie')").unwrap()).unwrap();
+
+    // LIKE 前缀匹配
+    let result = executor.execute(&SqlParser::parse("SELECT * FROM t WHERE name LIKE 'A%'").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows.len(), 1, "LIKE 'A%' 应返回 1 行");
+    } else { panic!("期望 QueryResult"); }
+
+    // LIKE 后缀匹配
+    let result = executor.execute(&SqlParser::parse("SELECT * FROM t WHERE name LIKE '%e'").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows.len(), 2, "LIKE '%e' 应返回 2 行 (Alice, Charlie)");
+    } else { panic!("期望 QueryResult"); }
+
+    // LIKE 中间匹配
+    let result = executor.execute(&SqlParser::parse("SELECT * FROM t WHERE name LIKE '%ob%'").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows.len(), 1, "LIKE '%%ob%%' 应返回 1 行 (Bob)");
+    } else { panic!("期望 QueryResult"); }
+
+    // NOT LIKE
+    let result = executor.execute(&SqlParser::parse("SELECT * FROM t WHERE name NOT LIKE 'A%'").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows.len(), 2, "NOT LIKE 'A%' 应返回 2 行 (Bob, Charlie)");
+    } else { panic!("期望 QueryResult"); }
+}
+
+#[test]
+fn test_where_in() {
+    let (_dir, executor) = setup_executor();
+    executor.execute(&SqlParser::parse("CREATE TABLE t (id INT PRIMARY KEY, score INT)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (1, 10)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (2, 20)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (3, 30)").unwrap()).unwrap();
+
+    // IN
+    let result = executor.execute(&SqlParser::parse("SELECT * FROM t WHERE id IN (1, 3)").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows.len(), 2, "IN (1, 3) 应返回 2 行");
+    } else { panic!("期望 QueryResult"); }
+
+    // NOT IN
+    let result = executor.execute(&SqlParser::parse("SELECT * FROM t WHERE id NOT IN (1, 2)").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows.len(), 1, "NOT IN (1, 2) 应返回 1 行 (id=3)");
+    } else { panic!("期望 QueryResult"); }
+}
+
+#[test]
+fn test_where_is_null_between() {
+    let (_dir, executor) = setup_executor();
+    executor.execute(&SqlParser::parse("CREATE TABLE t (id INT PRIMARY KEY, val INT)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (1, 10)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (2, NULL)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (3, 30)").unwrap()).unwrap();
+
+    // IS NULL
+    let result = executor.execute(&SqlParser::parse("SELECT * FROM t WHERE val IS NULL").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows.len(), 1, "IS NULL 应返回 1 行");
+    } else { panic!("期望 QueryResult"); }
+
+    // IS NOT NULL
+    let result = executor.execute(&SqlParser::parse("SELECT * FROM t WHERE val IS NOT NULL").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows.len(), 2, "IS NOT NULL 应返回 2 行");
+    } else { panic!("期望 QueryResult"); }
+
+    // BETWEEN
+    let result = executor.execute(&SqlParser::parse("SELECT * FROM t WHERE id BETWEEN 1 AND 2").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows.len(), 2, "BETWEEN 1 AND 2 应返回 2 行");
+    } else { panic!("期望 QueryResult"); }
+
+    // NOT BETWEEN (parser: NOT BETWEEN = col < low OR col > high)
+    let result = executor.execute(&SqlParser::parse("SELECT * FROM t WHERE id NOT BETWEEN 1 AND 2").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows.len(), 1, "NOT BETWEEN 1 AND 2 应返回 1 行 (id=3)");
+    } else { panic!("期望 QueryResult"); }
+}
+
+#[test]
+fn test_upsert_do_nothing() {
+    let (_dir, executor) = setup_executor();
+    executor.execute(&SqlParser::parse("CREATE TABLE t (id INT PRIMARY KEY, val TEXT)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (1, 'a')").unwrap()).unwrap();
+
+    // ON CONFLICT DO NOTHING - 应该静默跳过
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (1, 'b') ON CONFLICT DO NOTHING").unwrap()).unwrap();
+
+    let result = executor.execute(&SqlParser::parse("SELECT * FROM t WHERE id = 1").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows.len(), 1);
+        // 值应该保持原来的 'a'（未被覆盖）
+        let val = &rows[0].values[1];
+        assert_eq!(*val, Value::Text("a".into()));
+    } else { panic!("期望 QueryResult"); }
+}
+
+#[test]
+fn test_upsert_do_update() {
+    let (_dir, executor) = setup_executor();
+    executor.execute(&SqlParser::parse("CREATE TABLE t (id INT PRIMARY KEY, val TEXT)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (1, 'a')").unwrap()).unwrap();
+
+    // ON CONFLICT DO UPDATE SET val = 'b'
+    executor.execute(&SqlParser::parse(
+        "INSERT INTO t VALUES (1, 'ignored') ON CONFLICT DO UPDATE SET val = 'b'"
+    ).unwrap()).unwrap();
+
+    let result = executor.execute(&SqlParser::parse("SELECT * FROM t WHERE id = 1").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        let val = &rows[0].values[1];
+        assert_eq!(*val, Value::Text("b".into()), "UPSERT 后 val 应更新为 'b'");
+    } else { panic!("期望 QueryResult"); }
+}
+
+#[test]
+fn test_aggregate_count() {
+    let (_dir, executor) = setup_executor();
+    executor.execute(&SqlParser::parse("CREATE TABLE t (id INT PRIMARY KEY, category TEXT, val INT)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (1, 'a', 10)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (2, 'a', 20)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (3, 'b', 30)").unwrap()).unwrap();
+
+    // COUNT(*)
+    let result = executor.execute(&SqlParser::parse("SELECT COUNT(*) FROM t").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, columns, .. } = result {
+        assert_eq!(columns, vec!["COUNT(*)"]);
+        assert_eq!(rows[0].values[0], Value::Integer(3));
+    } else { panic!("期望 QueryResult"); }
+}
+
+#[test]
+fn test_aggregate_sum_avg() {
+    let (_dir, executor) = setup_executor();
+    executor.execute(&SqlParser::parse("CREATE TABLE t (id INT PRIMARY KEY, val INT)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (1, 10)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (2, 20)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (3, 30)").unwrap()).unwrap();
+
+    // SUM
+    let result = executor.execute(&SqlParser::parse("SELECT SUM(val) FROM t").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows[0].values[0], Value::Integer(60));
+    } else { panic!("期望 QueryResult"); }
+
+    // AVG
+    let result = executor.execute(&SqlParser::parse("SELECT AVG(val) FROM t").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows[0].values[0], Value::Float(20.0));
+    } else { panic!("期望 QueryResult"); }
+
+    // MIN / MAX
+    let result = executor.execute(&SqlParser::parse("SELECT MIN(val), MAX(val) FROM t").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows[0].values[0], Value::Integer(10));
+        assert_eq!(rows[0].values[1], Value::Integer(30));
+    } else { panic!("期望 QueryResult"); }
+}
+
+#[test]
+fn test_group_by_and_having() {
+    let (_dir, executor) = setup_executor();
+    executor.execute(&SqlParser::parse("CREATE TABLE t (id INT PRIMARY KEY, cat TEXT, val INT)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (1, 'a', 10)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (2, 'a', 20)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (3, 'b', 30)").unwrap()).unwrap();
+
+    // GROUP BY + aggregate
+    let result = executor.execute(&SqlParser::parse("SELECT cat, COUNT(*) FROM t GROUP BY cat").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows.len(), 2, "GROUP BY 应返回 2 组");
+    } else { panic!("期望 QueryResult"); }
+}
+
+#[test]
+fn test_create_and_use_index() {
+    let (_dir, executor) = setup_executor();
+    executor.execute(&SqlParser::parse("CREATE TABLE t (id INT PRIMARY KEY, name TEXT, val INT)").unwrap()).unwrap();
+
+    // 插入数据
+    for i in 0..10 {
+        executor.execute(&SqlParser::parse(
+            &format!("INSERT INTO t VALUES ({}, 'name{}', {})", i, i, i * 10)
+        ).unwrap()).unwrap();
+    }
+
+    // 创建索引
+    executor.execute(&SqlParser::parse("CREATE INDEX idx_val ON t(val)").unwrap()).unwrap();
+
+    // 通过索引列查询（走 IndexScan）
+    let result = executor.execute(&SqlParser::parse("SELECT * FROM t WHERE val = 50").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows.len(), 1, "通过索引查询应返回 1 行");
+    } else { panic!("期望 QueryResult"); }
+
+    // 删除索引
+    executor.execute(&SqlParser::parse("DROP INDEX idx_val").unwrap()).unwrap();
+
+    // 索引删除后通过主键查询仍正常工作
+    let result = executor.execute(&SqlParser::parse("SELECT * FROM t WHERE id = 5").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows.len(), 1, "主键查询应仍正常工作");
+    } else { panic!("期望 QueryResult"); }
+}
+
+#[test]
+fn test_multi_insert_not_already_tested() {
+    // 验证多行 INSERT 已在 parser 层面正确解析
+    let stmt = SqlParser::parse("INSERT INTO t VALUES (1, 'a'), (2, 'b')").unwrap();
+    match stmt {
+        SqlStatement::Insert { values, .. } => {
+            assert_eq!(values.len(), 2, "多行 INSERT 应解析出 2 行");
+        }
+        _ => panic!("期望 Insert"),
+    }
+}

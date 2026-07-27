@@ -14,7 +14,7 @@ use crate::error::{EngineError, Result};
 use crate::sql::types::{Row, Value};
 use crate::storage::encoding::serialize_value;
 use crate::storage::engine::{SharedEngine, StorageEngine};
-use crate::storage::schema::TableSchema;
+use crate::storage::schema::{IndexDef, TableSchema};
 
 /// 基于 redb 的存储引擎实现
 pub struct RedbEngine {
@@ -23,16 +23,18 @@ pub struct RedbEngine {
 
 // redb 的表定义
 const SCHEMA_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("__schemas__");
+const INDEXES_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("__indexes__");
 const DATA_TABLE_PREFIX: &str = "__data__";
 
 impl RedbEngine {
     /// 打开数据库文件，不存在则创建
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let db = Database::create(path)?;
-        // 初始化 schema 表
+        // 初始化 schema 表和索引元数据表
         let write_txn = db.begin_write()?;
         {
             let _ = write_txn.open_table(SCHEMA_TABLE)?;
+            let _ = write_txn.open_table(INDEXES_TABLE)?;
         }
         write_txn.commit()?;
         Ok(Self { db })
@@ -264,6 +266,143 @@ impl StorageEngine for RedbEngine {
         }
         write_txn.commit()?;
         Ok(())
+    }
+
+    // ── 索引方法实现 ──
+
+    fn create_index(&self, index: &IndexDef) -> Result<()> {
+        let write_txn = self.db.begin_write()?;
+
+        // 检查索引是否已存在
+        {
+            let indexes_table = write_txn.open_table(INDEXES_TABLE)?;
+            let key = format!("{}:{}", index.table_name, index.name);
+            if indexes_table.get(key.as_str())?.is_some() {
+                return Err(EngineError::RedbTable(
+                    format!("索引 '{}' 已存在于表 '{}'", index.name, index.table_name)
+                ).into());
+            }
+        }
+        drop(write_txn);
+
+        let write_txn = self.db.begin_write()?;
+
+        // 保存索引元数据
+        {
+            let mut indexes_table = write_txn.open_table(INDEXES_TABLE)?;
+            let encoded = bincode::serialize(index)?;
+            let key = format!("{}:{}", index.table_name, index.name);
+            indexes_table.insert(key.as_str(), encoded.as_slice())?;
+        }
+
+        // 创建索引数据表
+        {
+            let internal_name = index.internal_table_name();
+            let _ = write_txn.open_table::<&[u8], &[u8]>(
+                TableDefinition::new(&internal_name),
+            )?;
+        }
+
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    fn drop_index(&self, table: &str, index_name: &str) -> Result<()> {
+        let write_txn = self.db.begin_write()?;
+
+        // 删除索引元数据
+        {
+            let mut indexes_table = write_txn.open_table(INDEXES_TABLE)?;
+            let key = format!("{}:{}", table, index_name);
+            indexes_table.remove(key.as_str())?;
+        }
+
+        // 清空索引数据表（redb 不支持直接删除表）
+        {
+            let internal_name = format!("__idx__{}__{}", table, index_name);
+            let mut idx_table = write_txn.open_table::<&[u8], &[u8]>(
+                TableDefinition::new(&internal_name),
+            )?;
+            let keys: Vec<Vec<u8>> = idx_table
+                .iter()?
+                .map(|item| item.map(|(k, _)| k.value().to_vec()))
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            for key in keys {
+                idx_table.remove(key.as_slice())?;
+            }
+        }
+
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    fn list_indexes(&self, table: &str) -> Result<Vec<IndexDef>> {
+        let read_txn = self.db.begin_read()?;
+        let indexes_table = read_txn.open_table(INDEXES_TABLE)?;
+
+        let mut indexes = Vec::new();
+        let prefix = format!("{}:", table);
+        for item in indexes_table.iter()? {
+            let (key, value) = item?;
+            let key_str = key.value();
+            if key_str.starts_with(&prefix) {
+                let index: IndexDef = bincode::deserialize(value.value())?;
+                indexes.push(index);
+            }
+        }
+        Ok(indexes)
+    }
+
+    fn insert_index_entry(&self, index: &IndexDef, key: &[u8], pk: &[u8]) -> Result<()> {
+        let write_txn = self.db.begin_write()?;
+        let internal_name = index.internal_table_name();
+        let mut idx_table = write_txn.open_table::<&[u8], &[u8]>(
+            TableDefinition::new(&internal_name),
+        )?;
+
+        // 复合键: 索引值 + 主键（支持重复键值）
+        let mut composite_key = key.to_vec();
+        composite_key.extend_from_slice(pk);
+        idx_table.insert(composite_key.as_slice(), pk)?;
+        drop(idx_table);
+
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    fn delete_index_entry(&self, index: &IndexDef, key: &[u8], pk: &[u8]) -> Result<()> {
+        let write_txn = self.db.begin_write()?;
+        let internal_name = index.internal_table_name();
+        let mut idx_table = write_txn.open_table::<&[u8], &[u8]>(
+            TableDefinition::new(&internal_name),
+        )?;
+
+        let mut composite_key = key.to_vec();
+        composite_key.extend_from_slice(pk);
+        idx_table.remove(composite_key.as_slice())?;
+        drop(idx_table);
+
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    fn scan_index_eq(&self, index: &IndexDef, key: &[u8]) -> Result<Vec<Vec<u8>>> {
+        let read_txn = self.db.begin_read()?;
+        let internal_name = index.internal_table_name();
+        let idx_table = read_txn.open_table::<&[u8], &[u8]>(
+            TableDefinition::new(&internal_name),
+        )?;
+
+        let mut pks = Vec::new();
+        for item in idx_table.iter()? {
+            let (k, value) = item?;
+            let k_bytes = k.value();
+            // 匹配前缀：key 和 composite_key 的前 len(key) 字节相同
+            if k_bytes.len() >= key.len() && k_bytes[..key.len()] == key[..] {
+                pks.push(value.value().to_vec());
+            }
+        }
+        Ok(pks)
     }
 }
 

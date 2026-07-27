@@ -1,6 +1,6 @@
 [package]
 name = "rustminidb"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 description = "A lightweight embedded database with native REST API"
 authors = ["RustMinidb Contributors"]
@@ -65,6 +65,7 @@ tempfile = "3"
 assert-json-diff = "2"
 reqwest = { version = "0.12", features = ["json"] }
 fastrand = "2"
+tower = { version = "0.5", features = ["util"] }
 
 [lib]
 name = "rustminidb"

@@ -13,6 +13,15 @@ use sqlparser::parser::Parser as SqlParserParser;
 use crate::error::{ParseError, Result};
 use crate::sql::types::{ColumnDef, ColumnType, Value};
 
+/// UPSERT / ON CONFLICT 动作
+#[derive(Debug, Clone)]
+pub enum OnConflictAction {
+    /// ON CONFLICT DO NOTHING — 冲突时跳过
+    DoNothing,
+    /// ON CONFLICT DO UPDATE SET col1=val1, col2=val2 — 冲突时更新
+    DoUpdate(Vec<(String, Value)>),
+}
+
 /// RustMinidb 支持的 SQL 语句类型（MVP）
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -26,11 +35,15 @@ pub enum SqlStatement {
         table: String,
         columns: Vec<String>,
         values: Vec<Vec<Value>>,
+        on_conflict: Option<OnConflictAction>,
     },
     Select {
         table: String,
         columns: Vec<String>,
         where_clause: Option<WhereClause>,
+        aggregates: Vec<AggregateDef>,
+        group_by: Vec<String>,
+        having: Option<WhereClause>,
         order_by: Option<OrderBy>,
         limit: Option<usize>,
         offset: Option<usize>,
@@ -47,6 +60,34 @@ pub enum SqlStatement {
     DropTable {
         name: String,
     },
+    /// CREATE INDEX 语句
+    CreateIndex {
+        name: String,
+        table: String,
+        columns: Vec<String>,
+        unique: bool,
+    },
+    /// DROP INDEX 语句
+    DropIndex {
+        name: String,
+        table: String,
+    },
+    /// ALTER TABLE 语句
+    AlterTable {
+        table: String,
+        operation: AlterTableOperation,
+    },
+}
+
+/// ALTER TABLE 操作类型
+#[derive(Debug, Clone)]
+pub enum AlterTableOperation {
+    AddColumn {
+        column_def: crate::sql::types::ColumnDef,
+    },
+    DropColumn {
+        column_name: String,
+    },
 }
 
 /// WHERE 条件
@@ -57,6 +98,29 @@ pub enum WhereClause {
         column: String,
         operator: ComparisonOp,
         value: Value,
+    },
+    /// LIKE / NOT LIKE 模式匹配
+    Like {
+        column: String,
+        pattern: String,
+        negated: bool,
+    },
+    /// IN / NOT IN 列表匹配
+    InList {
+        column: String,
+        values: Vec<Value>,
+        negated: bool,
+    },
+    /// IS NULL / IS NOT NULL
+    IsNull {
+        column: String,
+        negated: bool,
+    },
+    /// BETWEEN 范围匹配
+    Between {
+        column: String,
+        low: Value,
+        high: Value,
     },
     And(Box<WhereClause>, Box<WhereClause>),
     Or(Box<WhereClause>, Box<WhereClause>),
@@ -74,11 +138,28 @@ pub enum ComparisonOp {
     GtEq,  // >=
 }
 
-/// 排序规则
+/// 聚合函数定义
 #[derive(Debug, Clone)]
-pub struct OrderBy {
+pub struct AggregateDef {
+    /// 函数名: COUNT, SUM, AVG, MIN, MAX
+    pub function: String,
+    /// 列名或 "*"
+    pub column: String,
+    /// 别名（SELECT COUNT(*) AS cnt 中的 "cnt"）
+    pub alias: Option<String>,
+}
+
+/// 单列排序规则
+#[derive(Debug, Clone)]
+pub struct OrderByItem {
     pub column: String,
     pub ascending: bool,
+}
+
+/// 排序规则（支持多列）
+#[derive(Debug, Clone)]
+pub struct OrderBy {
+    pub items: Vec<OrderByItem>,
 }
 
 /// SQL 解析器
@@ -112,7 +193,8 @@ impl SqlParser {
                 let table_name = &insert.table;
                 let columns = &insert.columns;
                 let source = &insert.source;
-                Self::convert_insert(table_name, columns, source)
+                let on_conflict = &insert.on;
+                Self::convert_insert(table_name, columns, source, on_conflict)
             }
             Statement::Query(query) => Self::convert_select(query),
             Statement::Update {
@@ -134,12 +216,124 @@ impl SqlParser {
                 object_type,
                 names,
                 ..
-            } => Self::convert_drop(*object_type, names),
+            } => {
+                // 处理 DROP INDEX
+                if matches!(object_type, ObjectType::Index) {
+                    if names.is_empty() {
+                        return Err(ParseError::Syntax("缺少索引名".to_string()).into());
+                    }
+                    let index_name = Self::object_name_to_string(&names[0]);
+                    return Ok(SqlStatement::DropIndex {
+                        name: index_name,
+                        table: String::new(), // 用户后续可指定表名
+                    });
+                }
+                Self::convert_drop(*object_type, names)
+            }
+            Statement::CreateIndex(create_index) => {
+                Self::convert_create_index(create_index)
+            }
+            Statement::AlterTable {
+                name,
+                operations,
+                ..
+            } => Self::convert_alter_table(name, operations),
             _ => Err(ParseError::Unsupported(format!(
                 "不支持的 SQL 语句: {:?}",
                 stmt
             ))
             .into()),
+        }
+    }
+
+    fn convert_create_index(stmt: &sqlparser::ast::CreateIndex) -> Result<SqlStatement> {
+        let name = stmt
+            .name
+            .as_ref()
+            .map(|n| Self::object_name_to_string(n))
+            .unwrap_or_default();
+        let table = Self::object_name_to_string(&stmt.table_name);
+        let columns: Vec<String> = stmt.columns.iter().map(|c| c.to_string()).collect();
+        let unique = stmt.unique;
+
+        if name.is_empty() {
+            return Err(ParseError::Syntax("CREATE INDEX 需要索引名".to_string()).into());
+        }
+        if columns.is_empty() {
+            return Err(ParseError::Syntax("CREATE INDEX 需要至少一个列".to_string()).into());
+        }
+
+        Ok(SqlStatement::CreateIndex {
+            name,
+            table,
+            columns,
+            unique,
+        })
+    }
+
+    fn convert_alter_table(
+        name: &sqlparser::ast::ObjectName,
+        operations: &[sqlparser::ast::AlterTableOperation],
+    ) -> Result<SqlStatement> {
+        let table = Self::object_name_to_string(name);
+
+        if operations.is_empty() {
+            return Err(ParseError::Syntax("ALTER TABLE 需要至少一个操作".to_string()).into());
+        }
+
+        // MVP 只支持第一个操作
+        let op = &operations[0];
+        match op {
+            sqlparser::ast::AlterTableOperation::AddColumn { column_def, .. } => {
+                let col_type = Self::convert_data_type(&column_def.data_type)?;
+                let mut nullable = true;
+                let mut is_primary_key = false;
+                let mut default = None;
+                let mut comment = None;
+
+                for opt in &column_def.options {
+                    match &opt.option {
+                        sqlparser::ast::ColumnOption::NotNull => nullable = false,
+                        sqlparser::ast::ColumnOption::Unique { is_primary: true, .. } => {
+                            is_primary_key = true;
+                            nullable = false;
+                        }
+                        sqlparser::ast::ColumnOption::Default(expr) => {
+                            default = Some(Self::expr_to_value(expr)?);
+                        }
+                        sqlparser::ast::ColumnOption::Comment(s) => {
+                            comment = Some(s.clone());
+                        }
+                        _ => {}
+                    }
+                }
+
+                let col = crate::sql::types::ColumnDef {
+                    name: column_def.name.to_string(),
+                    col_type,
+                    nullable,
+                    is_primary_key,
+                    default,
+                    auto_increment: false,
+                    comment,
+                };
+
+                Ok(SqlStatement::AlterTable {
+                    table,
+                    operation: AlterTableOperation::AddColumn { column_def: col },
+                })
+            }
+            sqlparser::ast::AlterTableOperation::DropColumn { column_name, .. } => {
+                Ok(SqlStatement::AlterTable {
+                    table,
+                    operation: AlterTableOperation::DropColumn {
+                        column_name: column_name.to_string(),
+                    },
+                })
+            }
+            _ => Err(ParseError::Unsupported(
+                format!("不支持的 ALTER TABLE 操作: {:?}", op)
+            ).into()),
         }
     }
 
@@ -155,6 +349,7 @@ impl SqlParser {
             let col_type = Self::convert_data_type(&col.data_type)?;
             let mut nullable = true;
             let mut is_primary_key = false;
+            let mut auto_increment = false;
             let mut default = None;
             let mut comment = None;
 
@@ -168,6 +363,17 @@ impl SqlParser {
                     }
                     ColumnOption::Comment(s) => {
                         comment = Some(s.clone());
+                    }
+                    ColumnOption::DialectSpecific(tokens) => {
+                        // 检查是否包含 AUTO_INCREMENT 关键字
+                        for token in tokens {
+                            let s = token.to_string().to_uppercase();
+                            if s == "AUTO_INCREMENT" || s == "AUTOINCREMENT" {
+                                is_primary_key = true;
+                                nullable = false;
+                                auto_increment = true;
+                            }
+                        }
                     }
                     _ => {}
                 }
@@ -187,6 +393,7 @@ impl SqlParser {
                 nullable,
                 is_primary_key,
                 default,
+                auto_increment,
                 comment,
             });
         }
@@ -211,6 +418,7 @@ impl SqlParser {
         table_name: &sqlparser::ast::TableObject,
         columns: &[Ident],
         source: &Option<Box<Query>>,
+        on_conflict: &Option<sqlparser::ast::OnInsert>,
     ) -> Result<SqlStatement> {
         let table = Self::table_object_to_string(table_name);
         let cols: Vec<String> = columns.iter().map(|c| c.to_string()).collect();
@@ -235,10 +443,47 @@ impl SqlParser {
             None => return Err(ParseError::Unsupported("MVP 需要 VALUES 子句".to_string()).into()),
         };
 
+        // 解析 ON CONFLICT 子句
+        let on_conflict_action: Option<OnConflictAction> = match on_conflict {
+            Some(sqlparser::ast::OnInsert::OnConflict(oc)) => {
+                match &oc.action {
+                    sqlparser::ast::OnConflictAction::DoNothing => {
+                        Some(OnConflictAction::DoNothing)
+                    }
+                    sqlparser::ast::OnConflictAction::DoUpdate(do_update) => {
+                        let mut assigns = Vec::new();
+                        for assignment in &do_update.assignments {
+                            let col = assignment.target.to_string();
+                            let val = Self::expr_to_value(&assignment.value)?;
+                            assigns.push((col, val));
+                        }
+                        Some(OnConflictAction::DoUpdate(assigns))
+                    }
+                }
+            }
+            Some(sqlparser::ast::OnInsert::DuplicateKeyUpdate(assignments)) => {
+                let mut assigns = Vec::new();
+                for assignment in assignments {
+                    let col = assignment.target.to_string();
+                    let val = Self::expr_to_value(&assignment.value)?;
+                    assigns.push((col, val));
+                }
+                Some(OnConflictAction::DoUpdate(assigns))
+            }
+            // 处理其他可能新增的 OnInsert 变体
+            Some(_) => {
+                return Err(ParseError::Unsupported(
+                    "不支持的 ON CONFLICT 变体".to_string()
+                ).into());
+            }
+            None => None,
+        };
+
         Ok(SqlStatement::Insert {
             table,
             columns: cols,
             values,
+            on_conflict: on_conflict_action,
         })
     }
 
@@ -266,34 +511,67 @@ impl SqlParser {
             None => return Err(ParseError::Syntax("缺少 FROM 子句".to_string()).into()),
         };
 
-        // 提取列
-        let columns = {
-            let mut cols = Vec::new();
-            for item in &select.projection {
-                match item {
-                    SelectItem::UnnamedExpr(Expr::Identifier(id)) => {
-                        cols.push(id.to_string());
-                    }
-                    SelectItem::ExprWithAlias { expr: _, alias } => {
-                        cols.push(alias.to_string());
-                    }
-                    SelectItem::Wildcard { .. } => {
-                        cols.push("*".to_string());
-                    }
-                    SelectItem::QualifiedWildcard(_, _) => {
-                        cols.push("*".to_string());
-                    }
-                    _ => {
-                        return Err(ParseError::Unsupported(format!(
-                            "不支持的 SELECT 项: {:?}",
-                            item
-                        ))
-                        .into())
+        // 提取列和聚合函数
+        let mut columns = Vec::new();
+        let mut aggregates = Vec::new();
+
+        for item in &select.projection {
+            match item {
+                SelectItem::UnnamedExpr(Expr::Identifier(id)) => {
+                    columns.push(id.to_string());
+                }
+                SelectItem::UnnamedExpr(Expr::Function(fun)) => {
+                    let func_name = fun.name.to_string().to_uppercase();
+                    let (col_name, is_star) = Self::extract_function_arg(&fun.args);
+                    let col_display = if is_star { "*".to_string() } else { col_name.clone() };
+                    aggregates.push(AggregateDef {
+                        function: func_name,
+                        column: col_display,
+                        alias: None,
+                    });
+                    // 聚合函数列在结果集中使用 function(col) 作为列名
+                    let col_alias = if is_star {
+                        format!("{}(*)", fun.name)
+                    } else {
+                        format!("{}({})", fun.name, col_name)
+                    };
+                    columns.push(col_alias);
+                }
+                SelectItem::ExprWithAlias {
+                    expr,
+                    alias,
+                } => {
+                    let alias_str = alias.to_string();
+                    // expr is &Expr when matched by reference (not Box<Expr>)
+                    if let Expr::Function(fun) = expr {
+                        let func_name = fun.name.to_string().to_uppercase();
+                        let (col_name, is_star) = Self::extract_function_arg(&fun.args);
+                        let col_display = if is_star { "*".to_string() } else { col_name };
+                        aggregates.push(AggregateDef {
+                            function: func_name,
+                            column: col_display,
+                            alias: Some(alias_str.clone()),
+                        });
+                        columns.push(alias_str);
+                    } else {
+                        columns.push(alias_str);
                     }
                 }
+                SelectItem::Wildcard(..) => {
+                    columns.push("*".to_string());
+                }
+                SelectItem::QualifiedWildcard(_, _) => {
+                    columns.push("*".to_string());
+                }
+                _ => {
+                    return Err(ParseError::Unsupported(format!(
+                        "不支持的 SELECT 项: {:?}",
+                        item
+                    ))
+                    .into())
+                }
             }
-            cols
-        };
+        }
 
         // 提取 WHERE
         let where_clause = select
@@ -302,22 +580,42 @@ impl SqlParser {
             .map(|expr| Self::convert_expr_to_where(expr))
             .transpose()?;
 
-        // 提取 ORDER BY
-        let order_by = query.order_by.as_ref().and_then(|ob| {
-            if ob.exprs.is_empty() {
-                None
-            } else {
-                let first = &ob.exprs[0];
-                let column = match &first.expr {
-                    Expr::Identifier(id) => id.to_string(),
-                    _ => return None,
-                };
-                Some(OrderBy {
-                    column,
-                    ascending: first.asc.unwrap_or(true),
-                })
+        // 提取 GROUP BY
+        let group_by: Vec<String> = match &select.group_by {
+            sqlparser::ast::GroupByExpr::Expressions(exprs, _) => {
+                exprs.iter().filter_map(|expr| {
+                    if let Expr::Identifier(id) = expr {
+                        Some(id.to_string())
+                    } else {
+                        None
+                    }
+                }).collect()
             }
-        });
+            _ => Vec::new(),
+        };
+
+        // 提取 HAVING
+        let having = select
+            .having
+            .as_ref()
+            .map(|expr| Self::convert_expr_to_where(expr))
+            .transpose()?;
+
+        // 提取 ORDER BY
+        let order_by: Option<OrderBy> = {
+            let items: Vec<OrderByItem> = query.order_by.as_ref().map_or(vec![], |ob| {
+                ob.exprs.iter().filter_map(|expr| {
+                    match &expr.expr {
+                        Expr::Identifier(id) => Some(OrderByItem {
+                            column: id.to_string(),
+                            ascending: expr.asc.unwrap_or(true),
+                        }),
+                        _ => None,
+                    }
+                }).collect()
+            });
+            if items.is_empty() { None } else { Some(OrderBy { items }) }
+        };
 
         // 提取 LIMIT / OFFSET
         let limit = query.limit.as_ref().and_then(|l| match l {
@@ -334,10 +632,41 @@ impl SqlParser {
             table,
             columns,
             where_clause,
+            aggregates,
+            group_by,
+            having,
             order_by,
             limit,
             offset,
         })
+    }
+
+    /// 从函数参数中提取列名和是否为 COUNT(*)
+    fn extract_function_arg(args: &sqlparser::ast::FunctionArguments) -> (String, bool) {
+        match args {
+            sqlparser::ast::FunctionArguments::List(list) => {
+                if list.args.is_empty() {
+                    return ("*".to_string(), true);
+                }
+                if let Some(first) = list.args.first() {
+                    match first {
+                        sqlparser::ast::FunctionArg::Unnamed(
+                            sqlparser::ast::FunctionArgExpr::Wildcard,
+                        ) => ("*".to_string(), true),
+                        sqlparser::ast::FunctionArg::Unnamed(
+                            sqlparser::ast::FunctionArgExpr::Expr(Expr::Identifier(id)),
+                        ) => (id.to_string(), false),
+                        sqlparser::ast::FunctionArg::Named { name, .. } => {
+                            (name.to_string(), false)
+                        }
+                        _ => ("*".to_string(), false),
+                    }
+                } else {
+                    ("*".to_string(), true)
+                }
+            }
+            _ => ("*".to_string(), true),
+        }
     }
 
     fn convert_update(
@@ -503,7 +832,147 @@ impl SqlParser {
                     value,
                 })
             }
+            // LIKE / ILIKE / NOT LIKE 模式匹配
+            Expr::Like {
+                negated,
+                any: _,
+                expr,
+                pattern,
+                escape_char: _,
+            } => {
+                let column = match expr.as_ref() {
+                    Expr::Identifier(id) => id.to_string(),
+                    _ => return Err(ParseError::Syntax(
+                        "LIKE 左侧必须是列名".to_string()
+                    ).into()),
+                };
+                let pattern_str = Self::expr_to_string(pattern.as_ref())?
+                    .ok_or_else(|| ParseError::Syntax("LIKE 模式必须是字符串".to_string()))?;
+                Ok(WhereClause::Like {
+                    column,
+                    pattern: pattern_str,
+                    negated: *negated,
+                })
+            }
+            // 大小写不敏感 LIKE
+            Expr::ILike {
+                negated,
+                any: _,
+                expr,
+                pattern,
+                escape_char: _,
+            } => {
+                let column = match expr.as_ref() {
+                    Expr::Identifier(id) => id.to_string(),
+                    _ => return Err(ParseError::Syntax(
+                        "ILIKE 左侧必须是列名".to_string()
+                    ).into()),
+                };
+                let pattern_str = Self::expr_to_string(pattern.as_ref())?
+                    .ok_or_else(|| ParseError::Syntax("ILIKE 模式必须是字符串".to_string()))?;
+                // 大小写不敏感：将模式和列值都转为小写
+                // 用 "!" 标记这是一个大小写不敏感的 LIKE
+                let transformed = format!("ILike:{}", pattern_str);
+                Ok(WhereClause::Like {
+                    column,
+                    pattern: transformed,
+                    negated: *negated,
+                })
+            }
+            // IN / NOT IN
+            Expr::InList {
+                expr,
+                list,
+                negated,
+            } => {
+                let column = match expr.as_ref() {
+                    Expr::Identifier(id) => id.to_string(),
+                    _ => return Err(ParseError::Syntax(
+                        "IN 左侧必须是列名".to_string()
+                    ).into()),
+                };
+                let mut values = Vec::new();
+                for item in list {
+                    values.push(Self::expr_to_value(item)?);
+                }
+                Ok(WhereClause::InList {
+                    column,
+                    values,
+                    negated: *negated,
+                })
+            }
+            // IS NULL / IS NOT NULL
+            Expr::IsNull(expr) => {
+                let column = match expr.as_ref() {
+                    Expr::Identifier(id) => id.to_string(),
+                    _ => return Err(ParseError::Syntax(
+                        "IS NULL 左侧必须是列名".to_string()
+                    ).into()),
+                };
+                Ok(WhereClause::IsNull {
+                    column,
+                    negated: false,
+                })
+            }
+            Expr::IsNotNull(expr) => {
+                let column = match expr.as_ref() {
+                    Expr::Identifier(id) => id.to_string(),
+                    _ => return Err(ParseError::Syntax(
+                        "IS NOT NULL 左侧必须是列名".to_string()
+                    ).into()),
+                };
+                Ok(WhereClause::IsNull {
+                    column,
+                    negated: true,
+                })
+            }
+            // BETWEEN
+            Expr::Between {
+                expr,
+                negated,
+                low,
+                high,
+            } => {
+                let column = match expr.as_ref() {
+                    Expr::Identifier(id) => id.to_string(),
+                    _ => return Err(ParseError::Syntax(
+                        "BETWEEN 左侧必须是列名".to_string()
+                    ).into()),
+                };
+                let low_val = Self::expr_to_value(low.as_ref())?;
+                let high_val = Self::expr_to_value(high.as_ref())?;
+                if *negated {
+                    // NOT BETWEEN = col < low OR col > high
+                    return Ok(WhereClause::Or(
+                        Box::new(WhereClause::Simple {
+                            column: column.clone(),
+                            operator: ComparisonOp::Lt,
+                            value: low_val,
+                        }),
+                        Box::new(WhereClause::Simple {
+                            column,
+                            operator: ComparisonOp::Gt,
+                            value: high_val,
+                        }),
+                    ));
+                }
+                Ok(WhereClause::Between {
+                    column,
+                    low: low_val,
+                    high: high_val,
+                })
+            }
             _ => Err(ParseError::Syntax(format!("不支持的 WHERE 表达式: {:?}", expr)).into()),
+        }
+    }
+
+    /// 将 Expr 转为字符串值（针对文字/字符串表达式）
+    fn expr_to_string(expr: &Expr) -> Result<Option<String>> {
+        match expr {
+            Expr::Value(SqlValue::SingleQuotedString(s)) => Ok(Some(s.clone())),
+            Expr::Value(SqlValue::DoubleQuotedString(s)) => Ok(Some(s.clone())),
+            Expr::Value(SqlValue::Number(n, _)) => Ok(Some(n.clone())),
+            _ => Ok(None),
         }
     }
 
@@ -614,6 +1083,7 @@ mod tests {
                 table,
                 columns,
                 values,
+                on_conflict: _,
             } => {
                 assert_eq!(table, "users");
                 assert!(columns.is_empty());

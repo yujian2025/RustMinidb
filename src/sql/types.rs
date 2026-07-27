@@ -124,6 +124,8 @@ pub struct ColumnDef {
     pub is_primary_key: bool,
     pub default: Option<Value>,
     #[serde(default)]
+    pub auto_increment: bool,
+    #[serde(default)]
     pub comment: Option<String>,
 }
 
