@@ -125,6 +125,9 @@ pub struct ColumnDef {
     pub default: Option<Value>,
     #[serde(default)]
     pub auto_increment: bool,
+    /// 是否唯一约束（UNIQUE）
+    #[serde(default)]
+    pub unique: bool,
     #[serde(default)]
     pub comment: Option<String>,
 }

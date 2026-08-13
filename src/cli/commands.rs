@@ -40,7 +40,6 @@ pub enum Commands {
 
         /// 最大连接数
         #[arg(long, default_value_t = 100)]
-        #[allow(dead_code)]
         max_connections: u32,
 
         /// 启用文件监听自动重载（当数据库文件变化时自动刷新）
@@ -76,6 +75,10 @@ pub enum Commands {
         /// 输出格式 (json | table)
         #[arg(long, default_value = "table")]
         format: String,
+
+        /// 查询超时（毫秒），0 表示不超时
+        #[arg(long, default_value_t = 5000)]
+        timeout_ms: u64,
     },
 
     /// 初始化数据库（创建空数据库文件）

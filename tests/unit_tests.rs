@@ -5,12 +5,10 @@
 use std::sync::Arc;
 use tempfile::TempDir;
 
-use rustminidb::error::Result;
 use rustminidb::sql::executor::{ExecuteResult, Executor};
 use rustminidb::sql::parser::{ComparisonOp, SqlParser, SqlStatement, WhereClause};
-use rustminidb::sql::types::{ColumnType, Row, Value};
+use rustminidb::sql::types::{ColumnType, Value};
 use rustminidb::storage::redb_engine::RedbEngine;
-use rustminidb::storage::schema::TableSchema;
 
 /// 创建测试用的存储引擎和 Executor
 fn setup_executor() -> (TempDir, Executor) {
@@ -482,7 +480,7 @@ fn test_upsert_do_nothing() {
     if let ExecuteResult::QueryResult { rows, .. } = result {
         assert_eq!(rows.len(), 1);
         // 值应该保持原来的 'a'（未被覆盖）
-        let val = &rows[0].values[1];
+        let val = &rows[0][1];
         assert_eq!(*val, Value::Text("a".into()));
     } else { panic!("期望 QueryResult"); }
 }
@@ -500,7 +498,7 @@ fn test_upsert_do_update() {
 
     let result = executor.execute(&SqlParser::parse("SELECT * FROM t WHERE id = 1").unwrap()).unwrap();
     if let ExecuteResult::QueryResult { rows, .. } = result {
-        let val = &rows[0].values[1];
+        let val = &rows[0][1];
         assert_eq!(*val, Value::Text("b".into()), "UPSERT 后 val 应更新为 'b'");
     } else { panic!("期望 QueryResult"); }
 }
@@ -517,7 +515,7 @@ fn test_aggregate_count() {
     let result = executor.execute(&SqlParser::parse("SELECT COUNT(*) FROM t").unwrap()).unwrap();
     if let ExecuteResult::QueryResult { rows, columns, .. } = result {
         assert_eq!(columns, vec!["COUNT(*)"]);
-        assert_eq!(rows[0].values[0], Value::Integer(3));
+        assert_eq!(rows[0][0], Value::Integer(3));
     } else { panic!("期望 QueryResult"); }
 }
 
@@ -532,20 +530,20 @@ fn test_aggregate_sum_avg() {
     // SUM
     let result = executor.execute(&SqlParser::parse("SELECT SUM(val) FROM t").unwrap()).unwrap();
     if let ExecuteResult::QueryResult { rows, .. } = result {
-        assert_eq!(rows[0].values[0], Value::Integer(60));
+        assert_eq!(rows[0][0], Value::Integer(60));
     } else { panic!("期望 QueryResult"); }
 
     // AVG
     let result = executor.execute(&SqlParser::parse("SELECT AVG(val) FROM t").unwrap()).unwrap();
     if let ExecuteResult::QueryResult { rows, .. } = result {
-        assert_eq!(rows[0].values[0], Value::Float(20.0));
+        assert_eq!(rows[0][0], Value::Float(20.0));
     } else { panic!("期望 QueryResult"); }
 
     // MIN / MAX
     let result = executor.execute(&SqlParser::parse("SELECT MIN(val), MAX(val) FROM t").unwrap()).unwrap();
     if let ExecuteResult::QueryResult { rows, .. } = result {
-        assert_eq!(rows[0].values[0], Value::Integer(10));
-        assert_eq!(rows[0].values[1], Value::Integer(30));
+        assert_eq!(rows[0][0], Value::Integer(10));
+        assert_eq!(rows[0][1], Value::Integer(30));
     } else { panic!("期望 QueryResult"); }
 }
 
@@ -605,4 +603,214 @@ fn test_multi_insert_not_already_tested() {
         }
         _ => panic!("期望 Insert"),
     }
+}
+
+// ═══════════════════════════════════════
+// 显式事务测试（v0.4.0）
+// ═══════════════════════════════════════
+
+#[test]
+fn test_begin_commit_rollback() {
+    let (_dir, executor) = setup_executor();
+    executor.execute(&SqlParser::parse("CREATE TABLE t (id INT PRIMARY KEY, val INT)").unwrap()).unwrap();
+
+    // BEGIN + INSERT + ROLLBACK → 数据不持久
+    executor.execute(&SqlParser::parse("BEGIN").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (1, 100)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("ROLLBACK").unwrap()).unwrap();
+
+    let result = executor.execute(&SqlParser::parse("SELECT * FROM t").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows.len(), 0, "ROLLBACK 后插入的数据应回滚");
+    } else { panic!("期望 QueryResult"); }
+
+    // BEGIN + INSERT + COMMIT → 数据持久
+    executor.execute(&SqlParser::parse("BEGIN").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (1, 100)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("COMMIT").unwrap()).unwrap();
+
+    let result = executor.execute(&SqlParser::parse("SELECT * FROM t").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows.len(), 1, "COMMIT 后数据应持久");
+    } else { panic!("期望 QueryResult"); }
+}
+
+#[test]
+fn test_transaction_update_delete_rollback() {
+    let (_dir, executor) = setup_executor();
+    executor.execute(&SqlParser::parse("CREATE TABLE t (id INT PRIMARY KEY, val INT)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (1, 100)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (2, 200)").unwrap()).unwrap();
+
+    // BEGIN + UPDATE + DELETE + ROLLBACK → 全部恢复
+    executor.execute(&SqlParser::parse("BEGIN").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("UPDATE t SET val = 999 WHERE id = 1").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("DELETE FROM t WHERE id = 2").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("ROLLBACK").unwrap()).unwrap();
+
+    let result = executor.execute(&SqlParser::parse("SELECT * FROM t ORDER BY id").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows.len(), 2, "ROLLBACK 后应恢复 2 行");
+        assert_eq!(rows[0][1], Value::Integer(100), "UPDATE 应被回滚");
+        assert_eq!(rows[1][1], Value::Integer(200), "DELETE 应被回滚");
+    } else { panic!("期望 QueryResult"); }
+}
+
+#[test]
+fn test_nested_begin_rejected() {
+    let (_dir, executor) = setup_executor();
+    executor.execute(&SqlParser::parse("BEGIN").unwrap()).unwrap();
+    let result = executor.execute(&SqlParser::parse("BEGIN").unwrap());
+    assert!(result.is_err(), "嵌套 BEGIN 应报错");
+    executor.execute(&SqlParser::parse("ROLLBACK").unwrap()).unwrap();
+}
+
+#[test]
+fn test_commit_without_begin_rejected() {
+    let (_dir, executor) = setup_executor();
+    let result = executor.execute(&SqlParser::parse("COMMIT").unwrap());
+    assert!(result.is_err(), "没有事务时 COMMIT 应报错");
+}
+
+#[test]
+fn test_ddl_rejected_in_transaction() {
+    let (_dir, executor) = setup_executor();
+    executor.execute(&SqlParser::parse("CREATE TABLE t (id INT PRIMARY KEY)").unwrap()).unwrap();
+
+    executor.execute(&SqlParser::parse("BEGIN").unwrap()).unwrap();
+    let result = executor.execute(&SqlParser::parse("CREATE TABLE t2 (id INT PRIMARY KEY)").unwrap());
+    assert!(result.is_err(), "显式事务内 DDL 应被拒绝");
+    executor.execute(&SqlParser::parse("ROLLBACK").unwrap()).unwrap();
+
+    // 事务结束后 DDL 正常
+    executor.execute(&SqlParser::parse("CREATE TABLE t2 (id INT PRIMARY KEY)").unwrap()).unwrap();
+}
+
+#[test]
+fn test_uncommitted_transaction_auto_rollback_on_drop() {
+    let dir = TempDir::new().unwrap();
+    let db_path = dir.path().join("test.db");
+    {
+        let engine = Arc::new(RedbEngine::open(&db_path).unwrap());
+        let executor = Executor::new(engine);
+        executor.execute(&SqlParser::parse("CREATE TABLE t (id INT PRIMARY KEY, val INT)").unwrap()).unwrap();
+        executor.execute(&SqlParser::parse("BEGIN").unwrap()).unwrap();
+        executor.execute(&SqlParser::parse("INSERT INTO t VALUES (1, 100)").unwrap()).unwrap();
+        // executor 在此作用域结束处 drop → 应自动回滚未提交事务
+    }
+
+    // 重新打开数据库验证数据已被回滚
+    let engine = Arc::new(RedbEngine::open(&db_path).unwrap());
+    let executor = Executor::new(engine);
+    let result = executor.execute(&SqlParser::parse("SELECT * FROM t").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows.len(), 0, "未 COMMIT 的事务在 executor 销毁时应自动回滚");
+    } else { panic!("期望 QueryResult"); }
+}
+
+// ═══════════════════════════════════════
+// 约束强制执行测试（v0.4.0）
+// ═══════════════════════════════════════
+
+#[test]
+fn test_not_null_constraint() {
+    let (_dir, executor) = setup_executor();
+    executor.execute(
+        &SqlParser::parse("CREATE TABLE t (id INT PRIMARY KEY, name TEXT NOT NULL)").unwrap(),
+    ).unwrap();
+
+    // 缺列 → 报错
+    let result = executor.execute(&SqlParser::parse("INSERT INTO t (id) VALUES (1)").unwrap());
+    assert!(result.is_err(), "NOT NULL 列缺失应报错");
+
+    // 显式 NULL → 报错
+    let result = executor.execute(&SqlParser::parse("INSERT INTO t VALUES (1, NULL)").unwrap());
+    assert!(result.is_err(), "NOT NULL 列插入 NULL 应报错");
+
+    // 正常插入
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (1, 'a')").unwrap()).unwrap();
+}
+
+#[test]
+fn test_unique_constraint() {
+    let (_dir, executor) = setup_executor();
+    executor.execute(
+        &SqlParser::parse("CREATE TABLE t (id INT PRIMARY KEY, sn TEXT UNIQUE)").unwrap(),
+    ).unwrap();
+
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (1, 'S-001')").unwrap()).unwrap();
+
+    // 重复 UNIQUE 值 → 报错
+    let result = executor.execute(&SqlParser::parse("INSERT INTO t VALUES (2, 'S-001')").unwrap());
+    assert!(result.is_err(), "UNIQUE 列重复应报错");
+
+    // 不同值正常插入
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (2, 'S-002')").unwrap()).unwrap();
+
+    // 多个 NULL 允许共存（SQL 语义）
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (3, NULL)").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (4, NULL)").unwrap()).unwrap();
+}
+
+#[test]
+fn test_unique_constraint_on_update() {
+    let (_dir, executor) = setup_executor();
+    executor.execute(
+        &SqlParser::parse("CREATE TABLE t (id INT PRIMARY KEY, sn TEXT UNIQUE)").unwrap(),
+    ).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (1, 'S-001')").unwrap()).unwrap();
+    executor.execute(&SqlParser::parse("INSERT INTO t VALUES (2, 'S-002')").unwrap()).unwrap();
+
+    // UPDATE 成与其他行重复的值 → 报错
+    let result = executor.execute(
+        &SqlParser::parse("UPDATE t SET sn = 'S-001' WHERE id = 2").unwrap(),
+    );
+    assert!(result.is_err(), "UPDATE 违反 UNIQUE 应报错");
+
+    // 更新成自己的值 → 允许（排除自身）
+    executor.execute(&SqlParser::parse("UPDATE t SET sn = 'S-001' WHERE id = 1").unwrap()).unwrap();
+}
+
+#[test]
+fn test_default_value_fill() {
+    let (_dir, executor) = setup_executor();
+    executor.execute(
+        &SqlParser::parse("CREATE TABLE t (id INT PRIMARY KEY, name TEXT DEFAULT 'unknown', age INT DEFAULT 18)").unwrap(),
+    ).unwrap();
+
+    // 缺列 → 自动填充 DEFAULT
+    executor.execute(&SqlParser::parse("INSERT INTO t (id) VALUES (1)").unwrap()).unwrap();
+
+    let result = executor.execute(&SqlParser::parse("SELECT * FROM t WHERE id = 1").unwrap()).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows[0][1], Value::Text("unknown".into()), "TEXT DEFAULT 应填充");
+        assert_eq!(rows[0][2], Value::Integer(18), "INT DEFAULT 应填充");
+    } else { panic!("期望 QueryResult"); }
+}
+
+// ═══════════════════════════════════════
+// 查询超时测试（v0.4.0）
+// ═══════════════════════════════════════
+
+#[test]
+fn test_execute_with_timeout() {
+    let (_dir, executor) = setup_executor();
+    executor.execute(&SqlParser::parse("CREATE TABLE t (id INT PRIMARY KEY, val INT)").unwrap()).unwrap();
+    for i in 0..1000 {
+        executor.execute(&SqlParser::parse(&format!("INSERT INTO t VALUES ({}, {})", i, i)).unwrap()).unwrap();
+    }
+
+    let stmt = SqlParser::parse("SELECT COUNT(*) FROM t").unwrap();
+
+    // 正常超时（足够大）→ 成功返回
+    let result = executor.execute_with_timeout(&stmt, 5000).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows[0][0], Value::Integer(1000));
+    } else { panic!("期望 QueryResult"); }
+
+    // timeout_ms=0 → 不启用超时，直接执行
+    let result = executor.execute_with_timeout(&stmt, 0).unwrap();
+    if let ExecuteResult::QueryResult { rows, .. } = result {
+        assert_eq!(rows[0][0], Value::Integer(1000));
+    } else { panic!("期望 QueryResult"); }
 }

@@ -428,6 +428,8 @@ mod tests {
                     nullable: false,
                     is_primary_key: true,
                     default: None,
+                    auto_increment: false,
+                    unique: false,
                     comment: None,
                 },
                 ColumnDef {
@@ -436,6 +438,8 @@ mod tests {
                     nullable: false,
                     is_primary_key: false,
                     default: None,
+                    auto_increment: false,
+                    unique: false,
                     comment: None,
                 },
             ],

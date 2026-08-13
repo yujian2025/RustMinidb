@@ -24,6 +24,9 @@ use crate::storage::schema::TableSchema;
 
 // ── 导出配置 ──
 
+/// 导出进度回调类型：(表名, 已完成, 总数)
+pub type ProgressCallback<'a> = Option<&'a dyn Fn(&str, usize, usize)>;
+
 /// SQL 导出配置
 #[derive(Debug, Clone)]
 pub struct ExportConfig {
@@ -361,18 +364,18 @@ impl Exporter {
 
     /// 将整个数据库导出到 writer
     pub fn export_to_writer<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        let sql = self.export_to_string().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, e.to_string())
-        })?;
+        let sql = self.export_to_string().map_err(|e| io::Error::other(e.to_string()))?;
         writer.write_all(sql.as_bytes())?;
         Ok(())
     }
 
     /// 带进度回调的流式导出到 writer
+    ///
+    /// `on_progress` 回调接收（表名，已完成，总数）。
     pub fn export_to_writer_with_progress<W: Write>(
         &self,
         writer: &mut W,
-        on_progress: Option<&dyn Fn(&str, usize, usize)>,
+        on_progress: ProgressCallback<'_>,
     ) -> io::Result<()> {
         let dialect = self.config.dialect;
         let _q = |s: &str| dialect.quote_identifier(s);
@@ -396,9 +399,7 @@ impl Exporter {
             writer.write_all(dialect.begin_transaction().as_bytes())?;
         }
 
-        let tables = self.engine.list_tables().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, e.to_string())
-        })?;
+        let tables = self.engine.list_tables().map_err(|e| io::Error::other(e.to_string()))?;
 
         for table_name in &tables {
             let schema_result = self.engine.get_schema(table_name);
@@ -426,9 +427,7 @@ impl Exporter {
             }
 
             if self.config.include_data {
-                let rows = self.engine.scan_table(table_name).map_err(|e| {
-                    io::Error::new(io::ErrorKind::Other, e.to_string())
-                })?;
+                let rows = self.engine.scan_table(table_name).map_err(|e| io::Error::other(e.to_string()))?;
                 let total = rows.len();
                 if total > 0 {
                     let insert_sql = self.generate_insert_data_from_rows(&schema, &rows);
@@ -652,27 +651,25 @@ pub fn split_sql_statements(sql: &str) -> Vec<String> {
             if ch == string_char && prev_char != '\\' {
                 in_string = false;
             }
-        } else {
-            if ch == '\'' || ch == '"' {
-                in_string = true;
-                string_char = ch;
-                current.push(ch);
-            } else if ch == ';' {
-                let trimmed = current.trim();
-                if !trimmed.is_empty() {
-                    statements.push(trimmed.to_string());
-                }
+        } else if ch == '\'' || ch == '"' {
+            in_string = true;
+            string_char = ch;
+            current.push(ch);
+        } else if ch == ';' {
+            let trimmed = current.trim();
+            if !trimmed.is_empty() {
+                statements.push(trimmed.to_string());
+            }
+            current.clear();
+        } else if ch == '\n' || ch == '\r' {
+            let trimmed = current.trim();
+            if trimmed.starts_with("--") {
                 current.clear();
-            } else if ch == '\n' || ch == '\r' {
-                let trimmed = current.trim();
-                if trimmed.starts_with("--") {
-                    current.clear();
-                } else {
-                    current.push(ch);
-                }
             } else {
                 current.push(ch);
             }
+        } else {
+            current.push(ch);
         }
         prev_char = ch;
     }
@@ -806,8 +803,10 @@ mod tests {
     #[test]
     fn test_export_with_drop_table() {
         let (_dir, engine) = setup_db();
-        let mut config = ExportConfig::default();
-        config.include_drop_table = true;
+        let config = ExportConfig {
+            include_drop_table: true,
+            ..Default::default()
+        };
         let exporter = Exporter::with_config(engine, config);
         let sql = exporter.export_to_string().unwrap();
         assert!(sql.contains("DROP TABLE IF EXISTS"));
@@ -816,8 +815,10 @@ mod tests {
     #[test]
     fn test_export_with_transaction() {
         let (_dir, engine) = setup_db();
-        let mut config = ExportConfig::default();
-        config.wrap_in_transaction = true;
+        let config = ExportConfig {
+            wrap_in_transaction: true,
+            ..Default::default()
+        };
         let exporter = Exporter::with_config(engine, config);
         let sql = exporter.export_to_string().unwrap();
         assert!(sql.contains("BEGIN") || sql.contains("BEGIN;"));
@@ -827,8 +828,10 @@ mod tests {
     #[test]
     fn test_export_without_data() {
         let (_dir, engine) = setup_db();
-        let mut config = ExportConfig::default();
-        config.include_data = false;
+        let config = ExportConfig {
+            include_data: false,
+            ..Default::default()
+        };
         let exporter = Exporter::with_config(engine, config);
         let sql = exporter.export_to_string().unwrap();
         assert!(sql.contains("CREATE TABLE"));

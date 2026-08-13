@@ -1,8 +1,8 @@
 # RustMinidb
 
-**轻量级嵌入式关系型数据库 · 原生 REST API · 单文件存储 · 完整 SQL · 二级索引**
+**轻量级嵌入式关系型数据库 · 原生 REST API · 单文件存储 · 完整 SQL · 二级索引 · 显式事务**
 
-RustMinidb 是一个使用 Rust 编写的轻量级嵌入式关系型数据库，基于 [redb](https://github.com/cberner/redb) 存储引擎（ACID、MVCC、单文件）。原生内置 HTTP REST API 服务器，支持**聚合查询、二级索引、完整 WHERE 子句、UPSERT、多数据库同时打开**，适合物联网、边缘计算和嵌入式场景。
+RustMinidb 是一个使用 Rust 编写的轻量级嵌入式关系型数据库，基于 [redb](https://github.com/cberner/redb) 存储引擎（ACID、MVCC、单文件）。原生内置 HTTP REST API 服务器，支持**聚合查询、二级索引、完整 WHERE 子句、UPSERT、显式事务、多数据库同时打开**，适合物联网、边缘计算和嵌入式场景。
 
 ---
 
@@ -36,6 +36,52 @@ RustMinidb 是一个使用 Rust 编写的轻量级嵌入式关系型数据库，
 | **🏗️ ALTER TABLE** | ADD COLUMN / DROP COLUMN，生产环境加字段不再需要删表重建 |
 | **⚡ AUTO_INCREMENT** | 自增 ID 自动分配，传感器批量写入零操心 |
 | **🔀 多列 ORDER BY** | `ORDER BY col1 ASC, col2 DESC` 复合排序 |
+
+### 🆕 v0.4.0 新特性（事务与可靠性）
+
+| 特性 | 说明 |
+|---|---|
+| **🔐 显式事务** | `BEGIN` / `COMMIT` / `ROLLBACK`，多步写入原子提交或整体回滚，未提交断开自动回滚 |
+| **🛡️ 约束强制执行** | NOT NULL / UNIQUE / DEFAULT 真实生效，脏数据无法入库 |
+| **⏱️ 查询超时** | `query_timeout_ms` 生效，慢查询超时返回 `QUERY_TIMEOUT`，不再挂死连接 |
+| **🔢 最大连接数** | `--max-connections` 生效，超出限流排队，防止并发打爆 |
+| **🧹 既有缺陷修复** | 多列聚合列错位、CREATE INDEX 不回填已有数据等一批 bug 修复 |
+
+#### 显式事务示例
+
+```sql
+BEGIN;
+INSERT INTO sensor_data VALUES (1, 25.6, '2026-08-13 10:00:00');
+UPDATE sensor_data SET value = 26.0 WHERE id = 1;
+COMMIT;          -- 原子提交
+
+BEGIN;
+DELETE FROM sensor_data WHERE device_id = 'bad_device';
+ROLLBACK;        -- 全部回滚，不留脏数据
+```
+
+#### 约束示例
+
+```sql
+CREATE TABLE devices (
+    id INT PRIMARY KEY,
+    name TEXT NOT NULL,
+    location TEXT DEFAULT 'unknown',
+    sn TEXT UNIQUE
+);
+
+INSERT INTO devices (id) VALUES (1);            -- ❌ name 缺失，报 NOT NULL 违反
+INSERT INTO devices (id, name) VALUES (1, 'a'); -- ✅ location 自动填 'unknown'
+INSERT INTO devices (id, name, sn) VALUES (2, 'b', 'S-001');
+INSERT INTO devices (id, name, sn) VALUES (3, 'c', 'S-001'); -- ❌ sn 重复，报 UNIQUE 违反
+```
+
+#### CLI 超时参数
+
+```bash
+# 单条 SQL 带超时（毫秒），0 表示不超时
+rustminidb exec --db mydata.db --timeout-ms 5000 "SELECT * FROM sensor_data"
+```
 
 ### 🌐 REST API 服务器
 
@@ -304,10 +350,18 @@ RustMinidb 支持以下 SQL 语法（MVP 阶段）：
 | UPDATE | `UPDATE users SET age = 31 WHERE id = 1` |
 | DELETE | `DELETE FROM users WHERE id = 2` |
 | DROP TABLE | `DROP TABLE IF EXISTS users` |
+| CREATE INDEX | `CREATE INDEX idx_age ON users(age)` |
+| ALTER TABLE | `ALTER TABLE users ADD COLUMN email TEXT` |
+| UPSERT | `INSERT INTO users VALUES (1, 'Alice', 30) ON CONFLICT DO NOTHING` |
+| **BEGIN** | `BEGIN`（开启显式事务） |
+| **COMMIT** | `COMMIT`（提交事务） |
+| **ROLLBACK** | `ROLLBACK`（回滚事务） |
 
 支持的数据类型：`INTEGER`、`FLOAT`、`TEXT`、`BLOB`、`BOOLEAN`、`TIMESTAMP`
 
-支持的比较运算符：`=`、`!=`、`<`、`>`、`<=`、`>=`、`AND`、`OR`
+支持的列约束：`PRIMARY KEY`、`NOT NULL`、`UNIQUE`、`DEFAULT`、`AUTO_INCREMENT`
+
+支持的比较运算符：`=`、`!=`、`<`、`>`、`<=`、`>=`、`AND`、`OR`、`LIKE`、`IN`、`IS NULL`、`BETWEEN`
 
 ---
 

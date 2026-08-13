@@ -55,8 +55,6 @@ fn bench_insert(count: usize) -> Result<()> {
         )?)
         .unwrap();
 
-    let sql_template = "INSERT INTO bench VALUES ({}, 'test_data_{}', {}.5)";
-
     let start = Instant::now();
     for i in 0..count {
         let sql = format!("INSERT INTO bench VALUES ({}, 'test_data_{}', {}.5)", i, i, i);
@@ -168,9 +166,9 @@ fn bench_aggregate(count: usize) -> Result<()> {
     // COUNT(*)
     let r1 = executor.execute(&SqlParser::parse("SELECT COUNT(*) FROM bench")?)?;
     // AVG(val)
-    let r2 = executor.execute(&SqlParser::parse("SELECT AVG(val) FROM bench")?)?;
+    let _r2 = executor.execute(&SqlParser::parse("SELECT AVG(val) FROM bench")?)?;
     // GROUP BY
-    let r3 = executor.execute(&SqlParser::parse("SELECT cat, COUNT(*) FROM bench GROUP BY cat")?)?;
+    let _r3 = executor.execute(&SqlParser::parse("SELECT cat, COUNT(*) FROM bench GROUP BY cat")?)?;
 
     let elapsed = start.elapsed().as_nanos();
 

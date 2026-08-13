@@ -142,10 +142,14 @@ impl Planner {
                     };
                 }
 
-                plan = PlanNode::Projection {
-                    input: Box::new(plan),
-                    columns: cols,
-                };
+                // 投影：聚合查询无需投影节点（Aggregate 已按 SELECT 顺序输出
+                // group_by 列 + 聚合列，直接透传，避免按 schema 列名重排导致错位）
+                if !has_aggregation {
+                    plan = PlanNode::Projection {
+                        input: Box::new(plan),
+                        columns: cols,
+                    };
+                }
 
                 // 分页
                 if limit.is_some() || offset.is_some() {
@@ -229,6 +233,8 @@ mod tests {
                     nullable: false,
                     is_primary_key: true,
                     default: None,
+                    auto_increment: false,
+                    unique: false,
                     comment: None,
                 },
                 crate::sql::types::ColumnDef {
@@ -237,6 +243,8 @@ mod tests {
                     nullable: false,
                     is_primary_key: false,
                     default: None,
+                    auto_increment: false,
+                    unique: false,
                     comment: None,
                 },
             ],
@@ -283,6 +291,8 @@ mod tests {
                 nullable: false,
                 is_primary_key: true,
                 default: None,
+                auto_increment: false,
+                unique: false,
                 comment: None,
             }],
             primary_key: vec!["id".into()],

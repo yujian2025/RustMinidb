@@ -23,7 +23,7 @@ impl TableSchema {
             ));
         }
 
-        for (_i, (col, val)) in self.columns.iter().zip(values.iter()).enumerate() {
+        for (col, val) in self.columns.iter().zip(values.iter()) {
             if *val == Value::Null && !col.nullable {
                 return Err(format!("列 '{}' 不能为 NULL", col.name));
             }
@@ -61,11 +61,12 @@ pub fn row_from_map(schema: &TableSchema, map: &std::collections::HashMap<String
     for col in &schema.columns {
         match map.get(&col.name) {
             Some(val) => values.push(val.clone()),
-            None if col.nullable => values.push(Value::Null),
             None => {
-                // 尝试使用默认值
+                // DEFAULT 优先于 NULL（有默认值就填默认值）
                 if let Some(default) = &col.default {
                     values.push(default.clone());
+                } else if col.nullable {
+                    values.push(Value::Null);
                 } else {
                     return Err(format!("缺少列 '{}' 的值", col.name));
                 }

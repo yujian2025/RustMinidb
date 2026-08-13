@@ -4,6 +4,7 @@
 //! 支持：CREATE TABLE, INSERT, SELECT, UPDATE, DELETE, DROP TABLE。
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use crate::error::{ExecError, Result};
 use crate::sql::parser::{
@@ -34,11 +35,33 @@ pub enum ExecuteResult {
 #[derive(Clone)]
 pub struct Executor {
     engine: SharedEngine,
+    /// 显式事务状态（撤销日志），跨克隆共享
+    tx: Arc<Mutex<Option<TxState>>>,
+}
+
+/// 显式事务状态
+#[derive(Default)]
+struct TxState {
+    /// 撤销日志：回滚时逆序回放
+    undo_log: Vec<UndoEntry>,
+}
+
+/// 撤销日志条目
+enum UndoEntry {
+    /// INSERT：回滚时删除该行
+    Insert { table: String, row: Row },
+    /// UPDATE：回滚时恢复旧行
+    Update { table: String, pk: Value, old_row: Row },
+    /// DELETE：回滚时重新插入旧行
+    Delete { table: String, old_row: Row },
 }
 
 impl Executor {
     pub fn new(engine: SharedEngine) -> Self {
-        Self { engine }
+        Self {
+            engine,
+            tx: Arc::new(Mutex::new(None)),
+        }
     }
 
     /// 获取存储引擎引用
@@ -48,6 +71,13 @@ impl Executor {
 
     /// 执行一条 SQL 语句
     pub fn execute(&self, stmt: &SqlStatement) -> Result<ExecuteResult> {
+        // 显式事务内暂不支持 DDL（保持撤销日志语义简单可靠）
+        if self.in_transaction() && Self::is_ddl(stmt) {
+            return Err(ExecError::Validation(
+                "显式事务内暂不支持 DDL 语句（CREATE/DROP/ALTER/INDEX）".to_string(),
+            )
+            .into());
+        }
         match stmt {
             SqlStatement::CreateTable {
                 name,
@@ -81,7 +111,179 @@ impl Executor {
             SqlStatement::AlterTable { table, operation } => {
                 self.execute_alter_table(table, operation)
             }
+            SqlStatement::Begin => self.execute_begin(),
+            SqlStatement::Commit => self.execute_commit(),
+            SqlStatement::Rollback => self.execute_rollback(),
         }
+    }
+
+    /// 带超时执行 SQL（`timeout_ms` 为 0 时不启用超时）
+    ///
+    /// 通过独立线程执行 + 超时接收结果，超时返回 `ExecError::Timeout`。
+    /// 注意：超时后后台线程仍会继续执行（无法强杀），但调用方立即收到错误，
+    /// 避免请求挂死。
+    pub fn execute_with_timeout(
+        &self,
+        stmt: &SqlStatement,
+        timeout_ms: u64,
+    ) -> Result<ExecuteResult> {
+        if timeout_ms == 0 {
+            return self.execute(stmt);
+        }
+
+        let stmt = stmt.clone();
+        let executor = self.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = executor.execute(&stmt);
+            let _ = tx.send(result);
+        });
+
+        match rx.recv_timeout(std::time::Duration::from_millis(timeout_ms)) {
+            Ok(result) => result,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(
+                ExecError::Timeout(format!("查询执行超过 {}ms 仍未完成", timeout_ms)).into(),
+            ),
+            Err(_) => Err(ExecError::Validation("查询执行线程异常退出".into()).into()),
+        }
+    }
+
+    // ── 显式事务 ──
+
+    /// 当前是否处于显式事务中
+    pub fn in_transaction(&self) -> bool {
+        matches!(self.tx.lock(), Ok(guard) if guard.is_some())
+    }
+
+    /// 判断语句是否为 DDL（显式事务内禁止）
+    fn is_ddl(stmt: &SqlStatement) -> bool {
+        matches!(
+            stmt,
+            SqlStatement::CreateTable { .. }
+                | SqlStatement::DropTable { .. }
+                | SqlStatement::CreateIndex { .. }
+                | SqlStatement::DropIndex { .. }
+                | SqlStatement::AlterTable { .. }
+        )
+    }
+
+    /// 记录撤销日志（仅当事务进行中）
+    fn record_undo(&self, entry: UndoEntry) {
+        if let Ok(mut guard) = self.tx.lock() {
+            if let Some(state) = guard.as_mut() {
+                state.undo_log.push(entry);
+            }
+        }
+    }
+
+    /// BEGIN：开启显式事务
+    fn execute_begin(&self) -> Result<ExecuteResult> {
+        let mut guard = self
+            .tx
+            .lock()
+            .map_err(|_| ExecError::Validation("事务锁被污染".to_string()))?;
+        if guard.is_some() {
+            return Err(ExecError::Validation("不支持嵌套事务：已有进行中的事务".to_string()).into());
+        }
+        *guard = Some(TxState::default());
+        Ok(ExecuteResult::WriteResult {
+            rows_affected: 0,
+            last_insert_id: None,
+        })
+    }
+
+    /// COMMIT：提交事务（清空撤销日志）
+    fn execute_commit(&self) -> Result<ExecuteResult> {
+        let mut guard = self
+            .tx
+            .lock()
+            .map_err(|_| ExecError::Validation("事务锁被污染".to_string()))?;
+        match guard.as_ref() {
+            None => Err(ExecError::Validation("没有进行中的事务，无法 COMMIT".to_string()).into()),
+            Some(_) => {
+                *guard = None;
+                Ok(ExecuteResult::WriteResult {
+                    rows_affected: 0,
+                    last_insert_id: None,
+                })
+            }
+        }
+    }
+
+    /// ROLLBACK：逆序回放撤销日志，恢复事务开始前的状态
+    fn execute_rollback(&self) -> Result<ExecuteResult> {
+        let mut guard = self
+            .tx
+            .lock()
+            .map_err(|_| ExecError::Validation("事务锁被污染".to_string()))?;
+        self.replay_undo_log(&mut guard)?;
+        Ok(ExecuteResult::WriteResult {
+            rows_affected: 0,
+            last_insert_id: None,
+        })
+    }
+
+    /// 回放撤销日志并清空事务状态（调用方需已持有 tx 锁）
+    fn replay_undo_log(&self, guard: &mut Option<TxState>) -> Result<()> {
+        let state = guard.as_mut().ok_or_else(|| {
+            ExecError::Validation("没有进行中的事务，无法 ROLLBACK".to_string())
+        })?;
+
+        // 逆序回放撤销日志（尽力恢复所有条目）
+        let mut first_err: Option<crate::error::RustMinidbError> = None;
+        while let Some(entry) = state.undo_log.pop() {
+            if let Err(e) = self.undo_entry(&entry) {
+                if first_err.is_none() {
+                    first_err = Some(e);
+                }
+            }
+        }
+        *guard = None;
+
+        if let Some(e) = first_err {
+            return Err(e);
+        }
+        Ok(())
+    }
+
+    /// 回放单条撤销条目
+    fn undo_entry(&self, entry: &UndoEntry) -> Result<()> {
+        match entry {
+            UndoEntry::Insert { table, row } => {
+                let schema = self
+                    .engine
+                    .get_schema(table)?
+                    .ok_or_else(|| ExecError::TableNotFound(table.clone()))?;
+                // 先移除索引条目，再删除行
+                self.remove_indexes_for_delete(table, &schema, row)?;
+                if let Some(pk) = pk_value(row, &schema) {
+                    self.engine.delete_row(table, pk)?;
+                }
+            }
+            UndoEntry::Update { table, pk, old_row } => {
+                let schema = self
+                    .engine
+                    .get_schema(table)?
+                    .ok_or_else(|| ExecError::TableNotFound(table.clone()))?;
+                // 移除当前（新）行的索引条目
+                if let Some(current) = self.engine.get_row(table, pk)? {
+                    self.remove_indexes_for_delete(table, &schema, &current)?;
+                }
+                // 恢复旧行
+                self.engine.update_row(table, pk, old_row.clone())?;
+                // 重建旧行的索引条目
+                self.update_indexes_for_insert(table, &schema, old_row)?;
+            }
+            UndoEntry::Delete { table, old_row } => {
+                let schema = self
+                    .engine
+                    .get_schema(table)?
+                    .ok_or_else(|| ExecError::TableNotFound(table.clone()))?;
+                self.engine.insert_row(table, old_row.clone())?;
+                self.update_indexes_for_insert(table, &schema, old_row)?;
+            }
+        }
+        Ok(())
     }
 
     fn execute_create(
@@ -159,7 +361,7 @@ impl Executor {
                 for (col, val) in columns.iter().zip(row_values.iter()) {
                     map.insert(col.clone(), val.clone());
                 }
-                row_from_map(&schema, &map).map_err(|e| ExecError::Validation(e))?
+                row_from_map(&schema, &map).map_err(ExecError::Validation)?
             };
 
             // 类型转换尝试
@@ -171,7 +373,18 @@ impl Executor {
 
             schema
                 .validate_row(&row.values)
-                .map_err(|e| ExecError::TypeMismatch(e))?;
+                .map_err(ExecError::TypeMismatch)?;
+
+            // 校验 UNIQUE 约束（插入行时无需排除自己）
+            if let Err(e) = self.check_unique_constraints(table, &schema, &row, None) {
+                // 与 ON CONFLICT 语义衔接：冲突时按 on_conflict 动作处理
+                match on_conflict {
+                    Some(crate::sql::parser::OnConflictAction::DoNothing) => {
+                        continue; // 跳过冲突行
+                    }
+                    _ => return Err(e),
+                }
+            }
 
             // 尝试插入，主键冲突时根据 on_conflict 处理
             match self.engine.insert_row(table, row.clone()) {
@@ -181,6 +394,11 @@ impl Executor {
                         tracing::warn!("索引维护失败: {}", e);
                     }
                     inserted += 1;
+                    // 记录撤销条目（事务中回滚时删除该行）
+                    self.record_undo(UndoEntry::Insert {
+                        table: table.to_string(),
+                        row: row.clone(),
+                    });
                 }
                 Err(e) => {
                     // 检查是否是主键冲突
@@ -225,6 +443,12 @@ impl Executor {
                                 self.engine
                                     .update_row(table, &pk, Row::new(new_values))?;
                                 updated += 1;
+                                // 记录撤销条目（事务中回滚时恢复旧行）
+                                self.record_undo(UndoEntry::Update {
+                                    table: table.to_string(),
+                                    pk: pk.clone(),
+                                    old_row: old_row.clone(),
+                                });
                             }
                             None => {
                                 // 没有 ON CONFLICT 子句，向上传播主键冲突错误
@@ -311,7 +535,7 @@ impl Executor {
         for row in &rows {
             // 检查 WHERE 条件
             if let Some(wc) = where_clause {
-                if !self.evaluate_predicate(wc, row, &schema) {
+                if !Self::evaluate_predicate(wc, row, &schema) {
                     continue;
                 }
             }
@@ -328,7 +552,7 @@ impl Executor {
             // 验证新行
             schema
                 .validate_row(&new_values)
-                .map_err(|e| ExecError::TypeMismatch(e))?;
+                .map_err(ExecError::TypeMismatch)?;
 
             // 主键不能被更新
             if let Some(pk_idx) = schema.pk_index() {
@@ -340,6 +564,14 @@ impl Executor {
             }
 
             let pk = pk_value(row, &schema).unwrap();
+
+            // 校验 UNIQUE 约束（排除当前正在更新的行本身）
+            self.check_unique_constraints(
+                table,
+                &schema,
+                &Row { values: new_values.clone() },
+                Some(pk),
+            )?;
 
             // 删除旧索引条目（在更新数据之前）
             if let Err(e) = self.remove_indexes_for_delete(table, &schema, row) {
@@ -357,6 +589,13 @@ impl Executor {
             }
 
             updated += 1;
+
+            // 记录撤销条目（事务中回滚时恢复旧行）
+            self.record_undo(UndoEntry::Update {
+                table: table.to_string(),
+                pk: pk.clone(),
+                old_row: row.clone(),
+            });
         }
 
         Ok(ExecuteResult::WriteResult {
@@ -380,7 +619,7 @@ impl Executor {
 
         for row in &rows {
             if let Some(wc) = where_clause {
-                if !self.evaluate_predicate(wc, row, &schema) {
+                if !Self::evaluate_predicate(wc, row, &schema) {
                     continue;
                 }
             }
@@ -394,6 +633,12 @@ impl Executor {
 
             self.engine.delete_row(table, pk)?;
             deleted += 1;
+
+            // 记录撤销条目（事务中回滚时重新插入旧行）
+            self.record_undo(UndoEntry::Delete {
+                table: table.to_string(),
+                old_row: row.clone(),
+            });
         }
 
         Ok(ExecuteResult::WriteResult {
@@ -487,6 +732,13 @@ impl Executor {
         };
 
         self.engine.create_index(&index)?;
+
+        // 回填已有数据的索引条目（创建索引时表中可能已有数据）
+        let rows = self.engine.scan_table(table)?;
+        for row in &rows {
+            self.update_indexes_for_insert(table, &_schema, row)?;
+        }
+
         Ok(ExecuteResult::WriteResult {
             rows_affected: 0,
             last_insert_id: None,
@@ -607,7 +859,7 @@ impl Executor {
                 let rows = self.evaluate_plan(input, schema)?;
                 Ok(rows
                     .into_iter()
-                    .filter(|row| self.evaluate_predicate(predicate, row, schema))
+                    .filter(|row| Self::evaluate_predicate(predicate, row, schema))
                     .collect())
             }
             PlanNode::Projection { input, columns } => {
@@ -657,7 +909,7 @@ impl Executor {
                 let rows = self.evaluate_plan(input, schema)?;
                 Ok(rows
                     .into_iter()
-                    .filter(|row| self.evaluate_predicate(predicate, row, schema))
+                    .filter(|row| Self::evaluate_predicate(predicate, row, schema))
                     .collect())
             }
             PlanNode::Limit {
@@ -673,7 +925,6 @@ impl Executor {
 
     /// 计算 WHERE 条件
     fn evaluate_predicate(
-        &self,
         predicate: &WhereClause,
         row: &Row,
         schema: &TableSchema,
@@ -731,12 +982,12 @@ impl Executor {
                 if *negated { !matched } else { matched }
             }
             WhereClause::And(left, right) => {
-                self.evaluate_predicate(left, row, schema)
-                    && self.evaluate_predicate(right, row, schema)
+                Self::evaluate_predicate(left, row, schema)
+                    && Self::evaluate_predicate(right, row, schema)
             }
             WhereClause::Or(left, right) => {
-                self.evaluate_predicate(left, row, schema)
-                    || self.evaluate_predicate(right, row, schema)
+                Self::evaluate_predicate(left, row, schema)
+                    || Self::evaluate_predicate(right, row, schema)
             }
             WhereClause::InList {
                 column,
@@ -838,9 +1089,30 @@ impl Executor {
             | PlanNode::IndexScan { .. } => {
                 schema.columns.iter().map(|c| c.name.clone()).collect()
             }
+            PlanNode::Aggregate {
+                aggregates,
+                group_by,
+                ..
+            } => {
+                // 聚合查询的结果列 = GROUP BY 列 + 聚合函数列
+                let mut cols = group_by.clone();
+                for agg in aggregates {
+                    let name = match &agg.alias {
+                        Some(a) => a.clone(),
+                        None => {
+                            if agg.column == "*" {
+                                format!("{}(*)", agg.function)
+                            } else {
+                                format!("{}({})", agg.function, agg.column)
+                            }
+                        }
+                    };
+                    cols.push(name);
+                }
+                cols
+            }
             PlanNode::Filter { input, .. }
             | PlanNode::Sort { input, .. }
-            | PlanNode::Aggregate { input, .. }
             | PlanNode::Having { input, .. }
             | PlanNode::Limit { input, .. } => Self::extract_columns(input, schema),
         }
@@ -860,6 +1132,54 @@ impl Executor {
             }
         }
         Ok(coerced)
+    }
+
+    /// 校验行是否违反 UNIQUE 约束
+    ///
+    /// `exclude_pk` 用于 UPDATE 场景：排除正在更新的行本身。
+    fn check_unique_constraints(
+        &self,
+        table: &str,
+        schema: &TableSchema,
+        row: &Row,
+        exclude_pk: Option<&Value>,
+    ) -> Result<()> {
+        // 找出所有 UNIQUE 列（主键本身天然唯一，无需重复校验）
+        let unique_cols: Vec<usize> = schema
+            .columns
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.unique && !c.is_primary_key)
+            .map(|(i, _)| i)
+            .collect();
+        if unique_cols.is_empty() {
+            return Ok(());
+        }
+
+        let existing = self.engine.scan_table(table)?;
+        for col_idx in &unique_cols {
+            let val = &row.values[*col_idx];
+            // NULL 不参与唯一性判断（SQL 语义：多个 NULL 允许共存）
+            if *val == Value::Null {
+                continue;
+            }
+            for other in &existing {
+                // 排除自己（UPDATE 场景）
+                if let (Some(pi), Some(pk)) = (schema.pk_index(), exclude_pk) {
+                    if other.values[pi] == *pk {
+                        continue;
+                    }
+                }
+                if other.values[*col_idx] == *val {
+                    return Err(ExecError::ConstraintViolation(format!(
+                        "表 '{}' 的列 '{}' 违反 UNIQUE 约束",
+                        table, schema.columns[*col_idx].name
+                    ))
+                    .into());
+                }
+            }
+        }
+        Ok(())
     }
 
     // ── 索引维护辅助方法 ──
@@ -963,9 +1283,7 @@ impl Executor {
         }
 
         // 如果没有 GROUP BY，整个结果集作为一个组
-        if groups.is_empty() && !group_by.is_empty() {
-            groups.push((vec![], rows.iter().collect()));
-        } else if groups.is_empty() {
+        if groups.is_empty() {
             groups.push((vec![], rows.iter().collect()));
         }
 
@@ -1102,6 +1420,20 @@ impl Executor {
                     .unwrap_or(Value::Null)
             }
             _ => Value::Null,
+        }
+    }
+}
+
+impl Drop for Executor {
+    fn drop(&mut self) {
+        // 最后一个 Executor 实例销毁时，自动回滚未提交事务
+        if Arc::strong_count(&self.tx) == 1 {
+            if let Ok(mut guard) = self.tx.lock() {
+                if guard.is_some() {
+                    // 尽力回滚，忽略错误（drop 阶段无法传播）
+                    let _ = self.replay_undo_log(&mut guard);
+                }
+            }
         }
     }
 }

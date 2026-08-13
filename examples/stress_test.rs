@@ -73,8 +73,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for table_id in 1..=150 {
         let row_count = 10000 + (table_id as u64 * 137) % 5000; // 10000~15000
-        let batch_size = 200;
-        let batches = (row_count as usize + batch_size - 1) / batch_size;
+        let batch_size = 200usize;
+        let batches = (row_count as usize).div_ceil(batch_size);
         let is_wide = table_id <= 250; // 前250张是宽表
 
         for batch_idx in 0..batches {
@@ -91,7 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let mut first = true;
             for row_id in start_row..=end_row {
-                if !first { sql.push_str(","); }
+                if !first { sql.push(','); }
                 first = false;
                 sql.push_str(&format!("({}", row_id));
                 if is_wide {
@@ -99,7 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     for _ in 1..10 { sql.push_str(&format!(",'val_{}'", fastrand::i32(0..9999))); }
                 }
-                sql.push_str(")");
+                sql.push(')');
             }
 
             match query(&client, &base, &sql).await {
@@ -144,7 +144,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("  查询进度: {}/100", test_idx + 1);
         }
     }
-    let phase3_elapsed = phase3_start.elapsed();
+    let _phase3_elapsed = phase3_start.elapsed();
 
     // 计算查询延迟统计
     query_times.sort();
@@ -216,7 +216,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 输出服务器最终状态
     println!("═══ 服务器最终状态 ═══");
-    if let Ok(body) = client.get(&format!("{}/v1/health", base)).send().await {
+    if let Ok(body) = client.get(format!("{}/v1/health", base)).send().await {
         println!("{}", body.text().await.unwrap_or_default());
     }
     println!("\n✅ 压力测试全部完成!");
@@ -228,7 +228,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn query(client: &reqwest::Client, base: &str, sql: &str) -> Result<bool, reqwest::Error> {
     let body = serde_json::json!({ "sql": sql });
     let resp = client
-        .post(&format!("{}/v1/query", base))
+        .post(format!("{}/v1/query", base))
         .json(&body)
         .send()
         .await?;

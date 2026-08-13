@@ -247,7 +247,7 @@ impl AppState {
         if dir.exists() {
             for entry in std::fs::read_dir(dir)? {
                 let entry = entry?;
-                if entry.path().extension().map_or(false, |e| e == "db") {
+                if entry.path().extension().is_some_and(|e| e == "db") {
                     if let Some(name) = entry.file_name().to_str() {
                         let name = name.to_string();
                         if !databases.contains(&name) {

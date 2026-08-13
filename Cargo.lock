@@ -1351,7 +1351,7 @@ dependencies = [
 
 [[package]]
 name = "rustminidb"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "assert-json-diff",
  "axum",
@@ -1851,6 +1851,7 @@ dependencies = [
  "pin-project-lite",
  "sync_wrapper",
  "tokio",
+ "tokio-util",
  "tower-layer",
  "tower-service",
  "tracing",

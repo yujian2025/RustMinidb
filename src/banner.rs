@@ -51,7 +51,7 @@ fn supports_color() -> bool {
             }
         }
         // 默认 Windows 10+ 新终端都支持
-        return true;
+        true
     }
     #[cfg(not(windows))]
     {
@@ -267,7 +267,7 @@ fn system_info_panel(version: &str, features: &[&str]) -> String {
     ));
     panel.push_str(&format!("  {}\n", border));
     panel.push_str(&format!("    Version         :  {}\n", version));
-    panel.push_str(&format!("    Storage Engine  :  redb (single-file, ACID)\n"));
+    panel.push_str("    Storage Engine  :  redb (single-file, ACID)\n");
     panel.push_str(&format!("    Platform        :  {}\n", std::env::consts::OS));
     panel.push_str(&format!("    Architecture    :  {}\n", std::env::consts::ARCH));
     panel.push_str(&format!("    Features        :  {}\n", features.join(", ")));
@@ -336,16 +336,14 @@ pub fn print_startup_complete(addr: Option<&str>) {
         } else {
             println!("\n ✔ Server listening on {} (startup: {})\n", a, elapsed_str);
         }
+    } else if use_color() {
+        println!(
+            "\n {}✔{} RustMinidb ready (startup: {}{}{})\n",
+            FG_GREEN, RESET,
+            FG_YELLOW, elapsed_str, RESET
+        );
     } else {
-        if use_color() {
-            println!(
-                "\n {}✔{} RustMinidb ready (startup: {}{}{})\n",
-                FG_GREEN, RESET,
-                FG_YELLOW, elapsed_str, RESET
-            );
-        } else {
-            println!("\n ✔ RustMinidb ready (startup: {})\n", elapsed_str);
-        }
+        println!("\n ✔ RustMinidb ready (startup: {})\n", elapsed_str);
     }
 }
 
@@ -465,15 +463,13 @@ pub fn print_auth_status(enabled: bool) {
         } else {
             println!("  ✓ API Authentication: ENABLED (Bearer Token required)");
         }
+    } else if use_color() {
+        println!(
+            "  {}⚠{} {}API Authentication: DISABLED{} (set --api-token or RUSTMINIDB_API_TOKEN)",
+            FG_YELLOW, RESET, DIM, RESET
+        );
     } else {
-        if use_color() {
-            println!(
-                "  {}⚠{} {}API Authentication: DISABLED{} (set --api-token or RUSTMINIDB_API_TOKEN)",
-                FG_YELLOW, RESET, DIM, RESET
-            );
-        } else {
-            println!("  ⚠ API Authentication: DISABLED (set --api-token or RUSTMINIDB_API_TOKEN)");
-        }
+        println!("  ⚠ API Authentication: DISABLED (set --api-token or RUSTMINIDB_API_TOKEN)");
     }
     println!();
 }
@@ -506,7 +502,7 @@ mod tests {
 
     #[test]
     fn test_info_line_contains_version() {
-        let line = std::panic::catch_unwind(|| print_info_line());
+        let line = std::panic::catch_unwind(print_info_line);
         assert!(line.is_ok());
     }
 
@@ -530,7 +526,11 @@ mod tests {
     #[test]
     fn test_startup_elapsed() {
         record_start_time();
-        assert!(startup_elapsed_ms() >= 0);
+        // startup_elapsed_ms 返回无符号毫秒数，>= 0 恒真；改为校验合理上限
+        assert!(
+            startup_elapsed_ms() < 3_600_000,
+            "启动耗时不应超过 1 小时"
+        );
     }
 
     #[test]

@@ -77,6 +77,12 @@ pub enum SqlStatement {
         table: String,
         operation: AlterTableOperation,
     },
+    /// 显式事务：BEGIN
+    Begin,
+    /// 显式事务：COMMIT
+    Commit,
+    /// 显式事务：ROLLBACK
+    Rollback,
 }
 
 /// ALTER TABLE 操作类型
@@ -238,6 +244,10 @@ impl SqlParser {
                 operations,
                 ..
             } => Self::convert_alter_table(name, operations),
+            // 显式事务语句
+            Statement::StartTransaction { .. } => Ok(SqlStatement::Begin),
+            Statement::Commit { .. } => Ok(SqlStatement::Commit),
+            Statement::Rollback { .. } => Ok(SqlStatement::Rollback),
             _ => Err(ParseError::Unsupported(format!(
                 "不支持的 SQL 语句: {:?}",
                 stmt
@@ -250,7 +260,7 @@ impl SqlParser {
         let name = stmt
             .name
             .as_ref()
-            .map(|n| Self::object_name_to_string(n))
+            .map(Self::object_name_to_string)
             .unwrap_or_default();
         let table = Self::object_name_to_string(&stmt.table_name);
         let columns: Vec<String> = stmt.columns.iter().map(|c| c.to_string()).collect();
@@ -288,6 +298,7 @@ impl SqlParser {
                 let col_type = Self::convert_data_type(&column_def.data_type)?;
                 let mut nullable = true;
                 let mut is_primary_key = false;
+                let mut unique = false;
                 let mut default = None;
                 let mut comment = None;
 
@@ -297,6 +308,9 @@ impl SqlParser {
                         sqlparser::ast::ColumnOption::Unique { is_primary: true, .. } => {
                             is_primary_key = true;
                             nullable = false;
+                        }
+                        sqlparser::ast::ColumnOption::Unique { is_primary: false, .. } => {
+                            unique = true;
                         }
                         sqlparser::ast::ColumnOption::Default(expr) => {
                             default = Some(Self::expr_to_value(expr)?);
@@ -315,6 +329,7 @@ impl SqlParser {
                     is_primary_key,
                     default,
                     auto_increment: false,
+                    unique,
                     comment,
                 };
 
@@ -350,14 +365,15 @@ impl SqlParser {
             let mut nullable = true;
             let mut is_primary_key = false;
             let mut auto_increment = false;
+            let mut unique = false;
             let mut default = None;
             let mut comment = None;
 
             for opt in &col.options {
                 match &opt.option {
                     ColumnOption::NotNull => nullable = false,
-                    ColumnOption::Unique { is_primary: true, .. }
-                    | ColumnOption::Unique { is_primary: false, .. } => {}
+                    ColumnOption::Unique { is_primary: true, .. } => {}
+                    ColumnOption::Unique { is_primary: false, .. } => unique = true,
                     ColumnOption::Default(expr) => {
                         default = Some(Self::expr_to_value(expr)?);
                     }
@@ -394,6 +410,7 @@ impl SqlParser {
                 is_primary_key,
                 default,
                 auto_increment,
+                unique,
                 comment,
             });
         }
@@ -577,7 +594,7 @@ impl SqlParser {
         let where_clause = select
             .selection
             .as_ref()
-            .map(|expr| Self::convert_expr_to_where(expr))
+            .map(Self::convert_expr_to_where)
             .transpose()?;
 
         // 提取 GROUP BY
@@ -598,7 +615,7 @@ impl SqlParser {
         let having = select
             .having
             .as_ref()
-            .map(|expr| Self::convert_expr_to_where(expr))
+            .map(Self::convert_expr_to_where)
             .transpose()?;
 
         // 提取 ORDER BY
@@ -684,7 +701,7 @@ impl SqlParser {
         }
 
         let where_clause = selection
-            .map(|expr| Self::convert_expr_to_where(expr))
+            .map(Self::convert_expr_to_where)
             .transpose()?;
 
         Ok(SqlStatement::Update {
@@ -699,7 +716,7 @@ impl SqlParser {
         selection: Option<&Expr>,
     ) -> Result<SqlStatement> {
         let where_clause = selection
-            .map(|expr| Self::convert_expr_to_where(expr))
+            .map(Self::convert_expr_to_where)
             .transpose()?;
 
         Ok(SqlStatement::Delete {

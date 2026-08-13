@@ -197,9 +197,13 @@ pub async fn execute_query(
         }
     };
 
-    // 2. 执行
+    // 2. 执行（带超时保护，防止慢查询挂死请求）
     let db = state.db();
-    let result = match db.db_instance.executor.execute(&stmt) {
+    let result = match db
+        .db_instance
+        .executor
+        .execute_with_timeout(&stmt, req.timeout_ms)
+    {
         Ok(r) => r,
         Err(e) => {
             // 将错误映射到合适的错误码
@@ -329,6 +333,7 @@ fn error_code(err: &RustMinidbError) -> &str {
             crate::error::ExecError::TypeMismatch(_) => "TYPE_MISMATCH",
             crate::error::ExecError::ConstraintViolation(_) => "CONSTRAINT_VIOLATION",
             crate::error::ExecError::Validation(_) => "VALIDATION_ERROR",
+            crate::error::ExecError::Timeout(_) => "QUERY_TIMEOUT",
             _ => "EXEC_ERROR",
         },
         RustMinidbError::Engine(e) => match e {

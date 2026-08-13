@@ -46,6 +46,12 @@ pub struct FileWatcher {
     running: Arc<Mutex<bool>>,
 }
 
+impl Default for FileWatcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FileWatcher {
     /// 创建一个新的文件监听器
     pub fn new() -> Self {

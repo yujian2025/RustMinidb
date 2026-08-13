@@ -165,6 +165,9 @@ pub enum ExecError {
     #[error("验证错误: {0}")]
     Validation(String),
 
+    #[error("查询超时: {0}")]
+    Timeout(String),
+
     #[error("未实现的 SQL 特性: {0}")]
     NotImplemented(String),
 }

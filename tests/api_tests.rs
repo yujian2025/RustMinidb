@@ -123,7 +123,8 @@ async fn test_create_table_and_query() {
     let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
     assert_eq!(body["success"], true);
     assert_eq!(body["data"]["columns"], json!(["id", "name", "age"]));
-    assert_eq!(body["data"]["rows_affected"], 1);
+    // API 响应字段为 camelCase（QueryResultData 使用 serde rename_all）
+    assert_eq!(body["data"]["rowsAffected"], 1);
 }
 
 #[tokio::test]

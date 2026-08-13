@@ -1,6 +1,6 @@
 [package]
 name = "rustminidb"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "A lightweight embedded database with native REST API"
 authors = ["RustMinidb Contributors"]
@@ -17,7 +17,7 @@ all-features = true
 
 [features]
 default = ["server"]
-server = ["dep:axum", "dep:tokio", "dep:tower-http"]
+server = ["dep:axum", "dep:tokio", "dep:tower-http", "dep:tower"]
 
 [dependencies]
 # 存储引擎
@@ -45,6 +45,7 @@ clap = { version = "4", features = ["derive"] }
 axum = { version = "0.8", optional = true }
 tokio = { version = "1", features = ["full"], optional = true }
 tower-http = { version = "0.6", features = ["cors"], optional = true }
+tower = { version = "0.5", features = ["limit"], optional = true }
 
 # 交互式 Shell
 rustyline = { version = "15", optional = true }

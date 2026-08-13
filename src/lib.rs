@@ -108,7 +108,7 @@ impl Database {
             ExecuteResult::QueryResult { columns, rows, .. } => {
                 let maps: Vec<HashMap<String, Value>> = rows
                     .into_iter()
-                    .map(|row| columns.iter().cloned().zip(row.into_iter()).collect())
+                    .map(|row| columns.iter().cloned().zip(row).collect())
                     .collect();
                 Ok(maps)
             }

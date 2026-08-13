@@ -43,12 +43,17 @@ fn main() -> Result<()> {
             port,
             db,
             db_dir,
-            max_connections: _,
+            max_connections,
             watch,
             api_token,
-        } => cmd_serve(host, port, db, db_dir, watch, api_token),
+        } => cmd_serve(host, port, db, db_dir, max_connections, watch, api_token),
         Commands::Shell { db, watch } => cmd_shell(db, watch),
-        Commands::Exec { db, sql, format } => cmd_exec(db, sql, format),
+        Commands::Exec {
+            db,
+            sql,
+            format,
+            timeout_ms,
+        } => cmd_exec(db, sql, format, timeout_ms),
         Commands::Init { db } => cmd_init(db),
         Commands::Export {
             db,
@@ -68,6 +73,7 @@ fn cmd_serve(
     port: u16,
     dbs: Vec<String>,
     db_dir: String,
+    max_connections: u32,
     watch: bool,
     api_token: Option<String>,
 ) -> Result<()> {
@@ -125,6 +131,12 @@ fn cmd_serve(
         };
 
         let app = build_routes(state);
+
+        // 应用最大连接数限制（超出后新请求等待，防止并发打爆）
+        let app = app.layer(tower::limit::ConcurrencyLimitLayer::new(
+            max_connections.max(1) as usize,
+        ));
+        info!("Max connections: {}", max_connections);
 
         let listener = tokio::net::TcpListener::bind(&addr).await?;
         info!("RustMinidb v{} server starting on {}", rustminidb::version(), addr);
@@ -213,11 +225,9 @@ fn cmd_shell(dbs: Vec<String>, watch: bool) -> Result<()> {
         let mut fw = rustminidb::watcher::FileWatcher::new();
         let cb: rustminidb::watcher::ChangeCallback = Arc::new(move |event| {
             // 在 shell 中文件变化通知
-            match &event {
-                rustminidb::watcher::FileChangeEvent::DatabaseModified { db_name, .. } => {
-                    eprintln!("\n[File changed] {} — database modified externally", db_name);
-                }
-                _ => {}
+            if let rustminidb::watcher::FileChangeEvent::DatabaseModified { db_name, .. } = &event
+            {
+                eprintln!("\n[File changed] {} — database modified externally", db_name);
             }
         });
         let _ = fw.watch(&db_dir, cb);
@@ -426,7 +436,7 @@ fn cmd_shell(dbs: Vec<String>, watch: bool) -> Result<()> {
 }
 
 /// 执行单条 SQL
-fn cmd_exec(db: String, sql: String, format: String) -> Result<()> {
+fn cmd_exec(db: String, sql: String, format: String, timeout_ms: u64) -> Result<()> {
     use rustminidb::monitor;
 
     let engine = Arc::new(RedbEngine::open(&db)?);
@@ -434,7 +444,7 @@ fn cmd_exec(db: String, sql: String, format: String) -> Result<()> {
 
     let start = std::time::Instant::now();
     let stmt = SqlParser::parse(&sql)?;
-    let result = executor.execute(&stmt)?;
+    let result = executor.execute_with_timeout(&stmt, timeout_ms)?;
     let elapsed = start.elapsed().as_secs_f64() * 1000.0;
     let elapsed_us = (elapsed * 1000.0) as u64;
 
@@ -619,7 +629,7 @@ fn print_query_result(columns: &[String], rows: &[Vec<rustminidb::sql::types::Va
     print_row(columns, &col_widths);
     print_separator(&col_widths);
     for row in rows {
-        let strs: Vec<String> = row.iter().map(|v| val_display(v)).collect();
+        let strs: Vec<String> = row.iter().map(val_display).collect();
         print_row(&strs, &col_widths);
     }
     print_separator(&col_widths);
