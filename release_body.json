@@ -1,8 +1,8 @@
 {
-  "tag_name": "v0.2.0",
+  "tag_name": "v0.3.0",
   "target_commitish": "main",
-  "name": "v0.2.0",
-  "body": "## v0.2.0 New Features\n\n### What's New\n- Multi-database support (open multiple .db files simultaneously)\n- File watching with auto-reload (--watch flag)\n- New R logo with tech-style ASCII art\n- Shell multi-db switching (.use, .databases commands)\n- Centralized version management (Cargo.toml single source)\n\n### Downloads\n- [rustminidb.exe](https://github.com/yujian2025/RustMinidb/releases/download/v0.2.0/rustminidb.exe) (Windows)",
+  "name": "RustMinidb v0.3.0 — SQL补完计划",
+  "body": "## RustMinidb v0.3.0 发布\n\n### 新增功能\n\n#### SQL 引擎增强\n- **聚合函数**: COUNT/SUM/AVG/MIN/MAX + GROUP BY/HAVING\n- **完整 WHERE 子句**: LIKE/ILIKE/NOT LIKE, IN/NOT IN, IS NULL/NOT NULL, BETWEEN/NOT BETWEEN\n- **UPSERT**: ON CONFLICT DO NOTHING / DO UPDATE\n- **多列 ORDER BY**: ORDER BY col1 ASC, col2 DESC\n- **AUTO_INCREMENT**: 自增 ID 自动分配\n\n#### 二级索引系统\n- CREATE INDEX / DROP INDEX SQL 语句\n- 存储层基于 redb 的索引表实现\n- Planner 自动索引选择优化 (IndexScan)\n- INSERT/UPDATE/DELETE 时自动维护索引\n\n#### 表结构变更\n- ALTER TABLE ADD COLUMN\n- ALTER TABLE DROP COLUMN\n\n### 安装\n```bash\ncargo install rustminidb\n```\n\n### 使用文档\n```bash\n# 启动服务器\nrustminidb serve --port 8080 --db data.db\n\n# 创建索引\nrustminidb exec --db data.db \"CREATE INDEX idx_temp ON sensor_data(temp)\"\n\n# 聚合查询\nrustminidb exec --db data.db \"SELECT device, AVG(temp), COUNT(*) FROM sensor_data GROUP BY device\"\n```\n\n### 下载\n- [rustminidb.exe](https://github.com/yujian2025/RustMinidb/releases/download/v0.3.0/rustminidb.exe) (Windows)\n\n### 项目地址\nhttps://github.com/yujian2025/RustMinidb\n\n### 完整更新日志\n详见 https://github.com/yujian2025/RustMinidb/compare/v0.2.0...v0.3.0",
   "draft": false,
   "prerelease": false
 }
