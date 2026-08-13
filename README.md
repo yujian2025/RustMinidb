@@ -90,7 +90,7 @@ RustMinidb 是一个使用 Rust 编写的轻量级嵌入式关系型数据库，
 
 **方式一：下载预编译二进制**
 
-从 [Releases](https://github.com/rustminidb/rustminidb/releases) 下载对应平台的二进制文件。
+从 [Releases](https://github.com/yujian2025/RustMinidb/releases) 下载对应平台的二进制文件。
 
 **方式二：从源码编译**
 
@@ -341,7 +341,7 @@ rustminidb export --db mydata.db --output export.sql
 
 ```bash
 # 克隆仓库
-git clone https://github.com/rustminidb/rustminidb.git
+git clone https://github.com/yujian2025/RustMinidb.git
 cd rustminidb
 
 # 构建（默认启用 server 特性）
@@ -388,7 +388,7 @@ obtaining a copy of the software and accompanying documentation...
 
 ## 相关链接
 
-- **仓库**: https://github.com/rustminidb/rustminidb
+- **仓库**: https://github.com/yujian2025/RustMinidb
 - **文档**: https://docs.rs/rustminidb
 - **主页**: https://rustminidb.dev
 
